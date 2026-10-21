@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 cmake_minimum_required(VERSION 3.21)
 
-project(CarmoPDF VERSION 0.3.0 DESCRIPTION "Lecteur PDF libre et rapide" LANGUAGES C CXX)
+project(CarmoPDF VERSION 0.4.0 DESCRIPTION "Lecteur PDF libre et rapide" LANGUAGES C CXX)
 
 set(CARMOPDF_HOMEPAGE "https://github.com/pdf-libre/pdf-libre" CACHE STRING "Adresse du code source affichée dans l'application")
 option(CARMOPDF_BUILD_TESTS "Compiler les tests" ON)
@@ -77,6 +77,7 @@ add_library(carmopdf_ui STATIC
     src/ui/SplitDialog.h src/ui/SplitDialog.cpp
     src/ui/Printing.h src/ui/Printing.cpp
     src/ui/SearchBar.h src/ui/SearchBar.cpp
+    src/ui/SignatureDialog.h src/ui/SignatureDialog.cpp
     src/ui/ThumbnailModel.h src/ui/ThumbnailModel.cpp
     src/ui/WelcomeWidget.h src/ui/WelcomeWidget.cpp
 )

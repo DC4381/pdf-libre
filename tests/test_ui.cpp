@@ -37,6 +37,18 @@ double darkRatio(const QImage &image)
     return double(dark) / (double(img.width() / 2) * (img.height() / 2));
 }
 
+bool hasColorIn(const QImage &image, const QRect &area, const QColor &wanted)
+{
+    for (int y = std::max(0, area.top()); y < std::min(image.height(), area.bottom()); y += 2) {
+        for (int x = std::max(0, area.left()); x < std::min(image.width(), area.right()); x += 2) {
+            const QColor c = image.pixelColor(x, y);
+            if (std::abs(c.red() - wanted.red()) < 70 && std::abs(c.green() - wanted.green()) < 70 && std::abs(c.blue() - wanted.blue()) < 70)
+                return true;
+        }
+    }
+    return false;
+}
+
 // Si CARMOPDF_TEST_CAPTURES est défini, les captures y sont enregistrées
 // pour un contrôle visuel.
 void saveCapture(QWidget *widget, const QString &name)
@@ -289,6 +301,106 @@ private slots:
         PdfDocument last;
         QCOMPARE(last.open(files[2]), PdfDocument::OpenStatus::Ok);
         QCOMPARE(last.pageCount(), 10);
+    }
+
+    void annotations()
+    {
+        const QString work = m_dir.filePath(QStringLiteral("annoter.pdf"));
+        QVERIFY(QFile::copy(m_path, work));
+        DocumentTab tab(work, {});
+        tab.setSidebarVisible(false);
+        tab.resize(1000, 800);
+        tab.show();
+        QSignalSpy loaded(&tab, &DocumentTab::loaded);
+        QVERIFY(loaded.wait(5000));
+        QTRY_VERIFY_WITH_TIMEOUT(tab.isEditable(), 5000);
+        DocumentView *view = tab.view();
+        view->setZoomMode(DocumentView::ZoomMode::FitWidth);
+        QTRY_VERIFY_WITH_TIMEOUT(darkRatio(view->viewport()->grab().toImage()) > 0.01, 5000);
+        QSignalSpy state(&tab, &DocumentTab::editStateChanged);
+
+        // Surlignage à la souris sur la 1re ligne.
+        const QRectF page = view->pageViewportRect(0);
+        const double scale = page.width() / 595.0;
+        view->setAnnotationColor(QColor(255, 220, 0));
+        view->setTool(DocumentView::Tool::Highlight);
+        const QPoint from = (page.topLeft() + QPointF(60 * scale, 50 * scale)).toPoint();
+        const QPoint to = (page.topLeft() + QPointF(400 * scale, 55 * scale)).toPoint();
+        QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, from);
+        QTest::mouseMove(view->viewport(), from + QPoint(20, 2));
+        QTest::mouseMove(view->viewport(), to);
+        QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, to);
+        QTRY_COMPARE_WITH_TIMEOUT(view->pageAnnotations(0).size(), 1, 5000);
+        QCOMPARE(view->pageAnnotations(0).first().kind, AnnotationKind::Highlight);
+        QVERIFY(tab.isModified());
+        QVERIFY(tab.canUndo());
+
+        // Dessin à main levée : deux traits rapprochés = une annotation.
+        view->setTool(DocumentView::Tool::Ink);
+        view->setAnnotationColor(Qt::red);
+        const QPoint inkStart = (page.topLeft() + QPointF(100 * scale, 300 * scale)).toPoint();
+        QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, inkStart);
+        QTest::mouseMove(view->viewport(), inkStart + QPoint(40, 10));
+        QTest::mouseMove(view->viewport(), inkStart + QPoint(80, -10));
+        QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, inkStart + QPoint(80, -10));
+        QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, inkStart + QPoint(0, 30));
+        QTest::mouseMove(view->viewport(), inkStart + QPoint(80, 30));
+        QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, inkStart + QPoint(80, 30));
+        view->commitInk();
+        QTRY_COMPARE_WITH_TIMEOUT(view->pageAnnotations(0).size(), 2, 5000);
+        QCOMPARE(view->pageAnnotations(0).last().kind, AnnotationKind::Ink);
+
+        // Rectangle, note, texte, tampon.
+        view->setTool(DocumentView::Tool::Square);
+        const QPoint r1 = (page.topLeft() + QPointF(300 * scale, 300 * scale)).toPoint();
+        QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, r1);
+        QTest::mouseMove(view->viewport(), r1 + QPoint(60, 40));
+        QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, r1 + QPoint(60, 40));
+        QTRY_COMPARE_WITH_TIMEOUT(view->pageAnnotations(0).size(), 3, 5000);
+        tab.addNote(0, QPointF(450, 60), QStringLiteral("Vérifier la surface"));
+        tab.addFreeText(0, QRectF(60, 500, 300, 30), QStringLiteral("Clé n° 3"), 14);
+        QImage logo(80, 40, QImage::Format_ARGB32);
+        logo.fill(QColor(0, 120, 255));
+        tab.addStamp(0, QRectF(300, 200, 160, 80), logo, QStringLiteral("Logo"));
+        QTRY_COMPARE_WITH_TIMEOUT(view->pageAnnotations(0).size(), 6, 5000);
+
+        // Le rendu reflète les annotations : jaune sur la ligne, bleu du tampon.
+        const QRect lineArea(from.x(), from.y() - 10, to.x() - from.x(), 20);
+        const QRect stampArea(int(page.left() + 300 * scale), int(page.top() + 200 * scale), int(160 * scale), int(80 * scale));
+        bool yellow = false;
+        bool blue = false;
+        for (int attempt = 0; attempt < 50 && !(yellow && blue); ++attempt) {
+            QTest::qWait(100);
+            const QImage shot = view->viewport()->grab().toImage();
+            yellow = hasColorIn(shot, lineArea, QColor(255, 220, 0));
+            blue = hasColorIn(shot, stampArea, QColor(0, 120, 255));
+        }
+        QVERIFY(yellow);
+        QVERIFY(blue);
+        view->setTool(DocumentView::Tool::Select);
+        QTest::qWait(200);
+        saveCapture(&tab, QStringLiteral("annotations"));
+
+        // Sélection et suppression au clavier, puis annulation.
+        view->selectAnnotation(0, view->pageAnnotations(0)[2].id);
+        QTest::keyClick(view, Qt::Key_Delete);
+        QTRY_COMPARE_WITH_TIMEOUT(view->pageAnnotations(0).size(), 5, 5000);
+        tab.undo();
+        QTRY_COMPARE_WITH_TIMEOUT(view->pageAnnotations(0).size(), 6, 5000);
+        tab.editAnnotation(0, view->pageAnnotations(0)[3].id, QStringLiteral("Vérifier la surface et le cadastre"));
+        QTRY_COMPARE_WITH_TIMEOUT(view->pageAnnotations(0)[3].contents, QStringLiteral("Vérifier la surface et le cadastre"), 5000);
+
+        // Enregistrement puis relecture indépendante.
+        QSignalSpy savedSpy(&tab, &DocumentTab::saved);
+        tab.save();
+        QVERIFY(savedSpy.wait(5000));
+        QVERIFY(!tab.isModified());
+        PdfDocument reader;
+        QCOMPARE(reader.open(work), PdfDocument::OpenStatus::Ok);
+        QVERIFY(reader.enableEditing());
+        QCOMPARE(reader.annotations(0).size(), 6);
+        const QDir backups(Settings::instance().backupDirectory());
+        QVERIFY(!backups.entryList({QStringLiteral("annoter (*.pdf")}, QDir::Files).isEmpty());
     }
 
     void search()

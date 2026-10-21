@@ -35,6 +35,14 @@ void ThumbnailModel::setThumbnail(int page, const QImage &image)
     emit dataChanged(idx, idx, {Qt::DecorationRole});
 }
 
+void ThumbnailModel::invalidate(int page)
+{
+    m_images.remove(page);
+    m_requested.remove(page);
+    const QModelIndex idx = index(page);
+    emit dataChanged(idx, idx, {Qt::DecorationRole});
+}
+
 int ThumbnailModel::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : m_pageCount;

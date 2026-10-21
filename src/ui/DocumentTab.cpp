@@ -9,8 +9,10 @@
 #include "core/RenderService.h"
 #include "core/SearchService.h"
 
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QFileInfo>
+#include <QInputDialog>
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QUrl>
@@ -37,6 +39,7 @@ DocumentTab::DocumentTab(const QString &path, QWidget *parent)
     , m_sidebar(new QTabWidget(m_splitter))
     , m_thumbnails(new QListView(m_sidebar))
     , m_outline(new QTreeWidget(m_sidebar))
+    , m_comments(new QTreeWidget(m_sidebar))
     , m_view(new DocumentView(m_splitter))
     , m_thumbModel(new ThumbnailModel(this))
 {
@@ -63,8 +66,15 @@ DocumentTab::DocumentTab(const QString &path, QWidget *parent)
     m_outline->setAccessibleName(tr("Signets du document"));
     m_outline->header()->setStretchLastSection(true);
 
+    m_comments->setHeaderLabels({tr("Page"), tr("Auteur"), tr("Commentaire")});
+    m_comments->setRootIsDecorated(false);
+    m_comments->setAccessibleName(tr("Commentaires du document"));
+    m_comments->header()->setStretchLastSection(true);
+
     m_sidebar->addTab(m_thumbnails, tr("Miniatures"));
     m_sidebar->addTab(m_outline, tr("Signets"));
+    m_sidebar->addTab(m_comments, tr("Commentaires"));
+    m_sidebar->setTabVisible(2, false);
     m_sidebar->setDocumentMode(true);
     m_sidebar->setMinimumWidth(150);
 
@@ -122,6 +132,81 @@ DocumentTab::DocumentTab(const QString &path, QWidget *parent)
         if (page >= 0)
             m_view->goToPage(page);
     });
+    connect(m_comments, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem *item) {
+        const int page = item->data(0, kPageRole).toInt();
+        const int id = item->data(0, kPageRole + 1).toInt();
+        m_view->goToPage(page);
+        m_view->selectAnnotation(page, id);
+    });
+    connect(m_comments, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item) {
+        const int page = item->data(0, kPageRole).toInt();
+        const int id = item->data(0, kPageRole + 1).toInt();
+        m_view->goToPage(page);
+        m_view->selectAnnotation(page, id);
+        editAnnotation(page, id, QString());
+    });
+    connect(m_view, &DocumentView::annotationSelected, this, [this](int page, int id) {
+        for (int i = 0; i < m_comments->topLevelItemCount(); ++i) {
+            QTreeWidgetItem *item = m_comments->topLevelItem(i);
+            if (item->data(0, kPageRole).toInt() == page && item->data(0, kPageRole + 1).toInt() == id) {
+                m_comments->setCurrentItem(item);
+                return;
+            }
+        }
+        m_comments->setCurrentItem(nullptr);
+    });
+
+    // Outils d'annotation : la vue décrit le geste, l'onglet l'applique.
+    connect(m_view, &DocumentView::textMarkupRequested, this, [this](AnnotationKind kind, const QHash<int, QVector<QRectF>> &byPage) {
+        if (!m_render)
+            return;
+        const QColor color = m_view->annotationColor();
+        m_render->edit([kind, byPage, color](PdfDocument &doc) {
+            QVector<int> pages;
+            for (auto it = byPage.cbegin(); it != byPage.cend(); ++it) {
+                if (doc.addTextMarkup(it.key(), kind, it.value(), color) > 0)
+                    pages.append(it.key());
+            }
+            return pages;
+        });
+    });
+    connect(m_view, &DocumentView::noteRequested, this, [this](int page, QPointF point) {
+        bool ok = false;
+        const QString text = QInputDialog::getMultiLineText(this, tr("Nouvelle note"), tr("Texte de la note :"), {}, &ok);
+        if (ok && !text.trimmed().isEmpty())
+            addNote(page, point, text);
+    });
+    connect(m_view, &DocumentView::freeTextRequested, this, [this](int page, QRectF rect) {
+        bool ok = false;
+        const QString text = QInputDialog::getMultiLineText(this, tr("Ajouter du texte"), tr("Texte à poser sur la page :"), {}, &ok);
+        if (ok && !text.trimmed().isEmpty())
+            addFreeText(page, rect, text, 12);
+    });
+    connect(m_view, &DocumentView::inkRequested, this, [this](int page, const QVector<InkStroke> &strokes, const QColor &color, double width) {
+        if (!m_render)
+            return;
+        m_render->edit([page, strokes, color, width](PdfDocument &doc) {
+            return doc.addInk(page, strokes, color, width) > 0 ? QVector<int>{page} : QVector<int>{};
+        });
+    });
+    connect(m_view, &DocumentView::shapeRequested, this, [this](AnnotationKind kind, int page, QRectF rect, const QColor &color, double width) {
+        if (!m_render)
+            return;
+        m_render->edit([kind, page, rect, color, width](PdfDocument &doc) {
+            return doc.addShape(page, kind, rect, color, QColor(), width) > 0 ? QVector<int>{page} : QVector<int>{};
+        });
+    });
+    connect(m_view, &DocumentView::stampRequested, this, &DocumentTab::addStamp);
+    connect(m_view, &DocumentView::annotationDeleteRequested, this, &DocumentTab::deleteAnnotation);
+    connect(m_view, &DocumentView::annotationEditRequested, this, [this](int page, int id) { editAnnotation(page, id, QString()); });
+    connect(m_view, &DocumentView::annotationMoveRequested, this, [this](int page, int id, QRectF rect) {
+        if (!m_render)
+            return;
+        m_render->edit([page, id, rect](PdfDocument &doc) {
+            return doc.setAnnotationRect(page, id, rect) ? QVector<int>{page} : QVector<int>{};
+        });
+    });
+
     connect(m_outline, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem *item) {
         const int page = item->data(0, kPageRole).toInt();
         if (page >= 0) {
@@ -147,7 +232,14 @@ DocumentTab::DocumentTab(const QString &path, QWidget *parent)
     m_reloadTimer.setSingleShot(true);
     m_reloadTimer.setInterval(500);
     connect(&m_reloadTimer, &QTimer::timeout, this, &DocumentTab::reload);
-    connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, [this] { m_reloadTimer.start(); });
+    connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, [this] {
+        if (QDateTime::currentMSecsSinceEpoch() < m_ignoreChangesUntil) {
+            if (!m_watcher.files().contains(m_path))
+                m_watcher.addPath(m_path);
+            return; // modification faite par nous-mêmes
+        }
+        m_reloadTimer.start();
+    });
     m_watcher.addPath(m_path);
 
     m_restore = Settings::instance().documentState(m_path);
@@ -207,6 +299,54 @@ void DocumentTab::openDocument()
         if (generation == m_generation)
             onOutline(outline);
     });
+    connect(service, &RenderService::editableChanged, this, [this, generation](bool editable) {
+        if (generation != m_generation)
+            return;
+        m_editable = editable;
+        emit editStateChanged();
+    });
+    connect(service, &RenderService::annotationsChanged, this, [this, generation](int page, const QVector<AnnotationInfo> &list) {
+        if (generation == m_generation)
+            onAnnotations(page, list);
+    });
+    connect(service, &RenderService::pagesChanged, this, [this, generation](const QVector<int> &pages) {
+        if (generation != m_generation)
+            return;
+        m_view->invalidatePages(pages);
+        for (int page : pages)
+            m_thumbModel->invalidate(page);
+    });
+    connect(service, &RenderService::editStateChanged, this, [this, generation](bool canUndo, bool canRedo, bool modified) {
+        if (generation != m_generation)
+            return;
+        m_canUndo = canUndo;
+        m_canRedo = canRedo;
+        m_modified = modified;
+        emit editStateChanged();
+    });
+    connect(service, &RenderService::saveFinished, this, [this, generation](bool ok, const QString &path, const QString &error) {
+        if (generation != m_generation)
+            return;
+        if (!m_textDocument) {
+            m_textDocument = std::make_unique<PdfDocument>();
+            if (m_textDocument->open(m_path, m_password) == PdfDocument::OpenStatus::Ok)
+                m_view->setTextDocument(m_textDocument.get());
+            else
+                m_textDocument.reset();
+        }
+        if (ok) {
+            m_modified = false;
+            emit editStateChanged();
+            emit saved(path);
+        } else {
+            emit saveFailed(error);
+        }
+    });
+    service->setAuthor(author());
+    m_annotations.clear();
+    m_editable = false;
+    m_modified = false;
+    m_canUndo = m_canRedo = false;
 }
 
 void DocumentTab::onOpened(int pageCount, const QString &title)
@@ -445,6 +585,15 @@ void DocumentTab::saveState() const
     Settings::instance().setDocumentState(m_path, state);
 }
 
+void DocumentTab::releaseFile()
+{
+    ++m_generation; // les signaux tardifs des services fermés sont ignorés
+    m_render.reset();
+    m_search.reset();
+    m_view->setTextDocument(nullptr);
+    m_textDocument.reset();
+}
+
 void DocumentTab::reload()
 {
     if (!QFileInfo::exists(m_path))
@@ -462,4 +611,188 @@ void DocumentTab::reload()
     m_view->setTextDocument(nullptr);
     m_textDocument.reset();
     openDocument();
+}
+
+// --- Annotations -------------------------------------------------------------
+
+void DocumentTab::onAnnotations(int page, const QVector<AnnotationInfo> &annotations)
+{
+    if (annotations.isEmpty())
+        m_annotations.remove(page);
+    else
+        m_annotations.insert(page, annotations);
+    m_view->setPageAnnotations(page, annotations);
+    refreshCommentList();
+}
+
+namespace {
+QString kindLabel(AnnotationKind kind)
+{
+    switch (kind) {
+    case AnnotationKind::Highlight:
+        return DocumentTab::tr("Surlignage");
+    case AnnotationKind::Underline:
+        return DocumentTab::tr("Soulignement");
+    case AnnotationKind::StrikeOut:
+        return DocumentTab::tr("Texte barré");
+    case AnnotationKind::Note:
+        return DocumentTab::tr("Note");
+    case AnnotationKind::FreeText:
+        return DocumentTab::tr("Texte");
+    case AnnotationKind::Ink:
+        return DocumentTab::tr("Dessin");
+    case AnnotationKind::Line:
+    case AnnotationKind::Arrow:
+        return DocumentTab::tr("Ligne");
+    case AnnotationKind::Square:
+        return DocumentTab::tr("Rectangle");
+    case AnnotationKind::Circle:
+        return DocumentTab::tr("Ellipse");
+    case AnnotationKind::Stamp:
+        return DocumentTab::tr("Tampon");
+    default:
+        return DocumentTab::tr("Annotation");
+    }
+}
+} // namespace
+
+void DocumentTab::refreshCommentList()
+{
+    m_comments->clear();
+    for (auto it = m_annotations.cbegin(); it != m_annotations.cend(); ++it) {
+        for (const AnnotationInfo &info : it.value()) {
+            auto *item = new QTreeWidgetItem(m_comments);
+            item->setText(0, QString::number(info.page + 1));
+            item->setText(1, info.author);
+            const QString text = info.contents.simplified();
+            item->setText(2, text.isEmpty() ? kindLabel(info.kind) : text);
+            item->setToolTip(2, kindLabel(info.kind) + (info.modified.isValid() ? QStringLiteral(", ") + info.modified.toString(QStringLiteral("dd/MM/yyyy HH:mm")) : QString())
+                                    + (info.contents.isEmpty() ? QString() : QStringLiteral("\n") + info.contents));
+            item->setData(0, kPageRole, info.page);
+            item->setData(0, kPageRole + 1, info.id);
+        }
+    }
+    m_sidebar->setTabVisible(2, m_comments->topLevelItemCount() > 0);
+}
+
+void DocumentTab::undo()
+{
+    if (!m_render || !m_canUndo)
+        return;
+    m_render->edit([](PdfDocument &doc) {
+        const int page = doc.undo();
+        return page >= 0 ? QVector<int>{page} : QVector<int>{};
+    });
+}
+
+void DocumentTab::redo()
+{
+    if (!m_render || !m_canRedo)
+        return;
+    m_render->edit([](PdfDocument &doc) {
+        const int page = doc.redo();
+        return page >= 0 ? QVector<int>{page} : QVector<int>{};
+    });
+}
+
+void DocumentTab::save()
+{
+    if (!m_render || !m_editable)
+        return;
+    const QString backup = Settings::instance().backupFor(m_path);
+    if (backup.isEmpty() || !QFile::copy(m_path, backup)) {
+        emit saveFailed(tr("Impossible de sauvegarder l'original avant de l'enregistrer."));
+        return;
+    }
+    m_ignoreChangesUntil = QDateTime::currentMSecsSinceEpoch() + 5000;
+    // Les autres instances (recherche, texte) libèrent le fichier : nécessaire
+    // sous Windows si l'enregistrement remplace le fichier au lieu de le compléter.
+    m_search.reset();
+    m_view->setTextDocument(nullptr);
+    m_textDocument.reset();
+    m_render->save(m_path);
+}
+
+void DocumentTab::saveAs(const QString &path)
+{
+    if (!m_render || !m_editable)
+        return;
+    m_render->save(QFileInfo(path).absoluteFilePath());
+}
+
+QString DocumentTab::author() const
+{
+    QString name = Settings::instance().raw().value(QStringLiteral("annotations/author")).toString();
+    if (name.isEmpty()) {
+        name = qEnvironmentVariable("USERNAME");
+        if (name.isEmpty())
+            name = qEnvironmentVariable("USER");
+    }
+    return name;
+}
+
+void DocumentTab::setAuthor(const QString &author)
+{
+    Settings::instance().raw().setValue(QStringLiteral("annotations/author"), author);
+    if (m_render)
+        m_render->setAuthor(author);
+}
+
+void DocumentTab::addNote(int page, QPointF point, const QString &text)
+{
+    if (!m_render)
+        return;
+    const QColor color = m_view->annotationColor();
+    m_render->edit([page, point, text, color](PdfDocument &doc) {
+        return doc.addNote(page, point, text, color) > 0 ? QVector<int>{page} : QVector<int>{};
+    });
+}
+
+void DocumentTab::addFreeText(int page, const QRectF &rect, const QString &text, double fontSize)
+{
+    if (!m_render)
+        return;
+    const QColor color = m_view->annotationColor();
+    m_render->edit([page, rect, text, fontSize, color](PdfDocument &doc) {
+        return doc.addFreeText(page, rect, text, fontSize, color) > 0 ? QVector<int>{page} : QVector<int>{};
+    });
+}
+
+void DocumentTab::addStamp(int page, const QRectF &rect, const QImage &image, const QString &label)
+{
+    if (!m_render)
+        return;
+    m_render->edit([page, rect, image, label](PdfDocument &doc) {
+        return doc.addStampImage(page, rect, image, label) > 0 ? QVector<int>{page} : QVector<int>{};
+    });
+}
+
+void DocumentTab::editAnnotation(int page, int id, const QString &text)
+{
+    if (!m_render)
+        return;
+    QString newText = text;
+    if (newText.isNull()) {
+        QString current;
+        for (const AnnotationInfo &info : m_annotations.value(page)) {
+            if (info.id == id)
+                current = info.contents;
+        }
+        bool ok = false;
+        newText = QInputDialog::getMultiLineText(this, tr("Commentaire"), tr("Texte du commentaire :"), current, &ok);
+        if (!ok)
+            return;
+    }
+    m_render->edit([page, id, newText](PdfDocument &doc) {
+        return doc.setAnnotationContents(page, id, newText) ? QVector<int>{page} : QVector<int>{};
+    });
+}
+
+void DocumentTab::deleteAnnotation(int page, int id)
+{
+    if (!m_render)
+        return;
+    m_render->edit([page, id](PdfDocument &doc) {
+        return doc.deleteAnnotation(page, id) ? QVector<int>{page} : QVector<int>{};
+    });
 }

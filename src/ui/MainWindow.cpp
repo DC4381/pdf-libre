@@ -5,12 +5,17 @@
 #include "DocumentTab.h"
 #include "Icons.h"
 #include "PageOrganizer.h"
+#include "SignatureDialog.h"
 #include "SplitDialog.h"
 #include "Printing.h"
 #include "WelcomeWidget.h"
 #include "app/Settings.h"
 
 #include <QAction>
+#include <QActionGroup>
+#include <QColorDialog>
+#include <QDate>
+#include <QToolButton>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -26,6 +31,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QStackedWidget>
+#include <QStatusBar>
 #include <QStandardPaths>
 #include <QStyle>
 #include <QTabBar>
@@ -44,7 +50,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_stack(new QStackedWidget(this))
     , m_welcome(new WelcomeWidget(m_stack))
     , m_tabs(new QTabWidget(m_stack))
+    , m_annotBar(nullptr)
 {
+    statusBar();
     setWindowTitle(QStringLiteral("CARMO PDF"));
     setAcceptDrops(true);
 
@@ -62,6 +70,7 @@ MainWindow::MainWindow(QWidget *parent)
     createActions();
     createMenus();
     createToolBar();
+    createAnnotationBar();
 
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
     connect(m_tabs, &QTabWidget::currentChanged, this, &MainWindow::onCurrentTabChanged);
@@ -101,6 +110,28 @@ void MainWindow::createActions()
         printDocument(this, tab->path(), tab->password(), tab->pageCount(), tab->view()->currentPage());
     }));
     m_printAct->setIcon(Icons::make(Icons::Kind::Print));
+    m_saveAct = make(tr("&Enregistrer"), QKeySequence::Save, [this] { saveCurrent(); });
+    m_saveAsAct = make(tr("Enregistrer &sous…"), QKeySequence::SaveAs, [this] { saveCurrentAs(); });
+    m_undoAct = make(tr("&Annuler"), QKeySequence::Undo, onTab([](DocumentTab *tab) { tab->undo(); }));
+    m_redoAct = make(tr("&Rétablir"), QKeySequence::Redo, onTab([](DocumentTab *tab) { tab->redo(); }));
+    m_authorAct = make(tr("&Nom de l'auteur des commentaires…"), QKeySequence(), [this] {
+        DocumentTab *tab = currentTab();
+        const QString current = tab ? tab->author() : Settings::instance().raw().value(QStringLiteral("annotations/author")).toString();
+        bool ok = false;
+        const QString name = QInputDialog::getText(this, tr("Auteur des commentaires"), tr("Nom affiché sur vos annotations :"),
+                                                   QLineEdit::Normal, current, &ok);
+        if (!ok)
+            return;
+        Settings::instance().raw().setValue(QStringLiteral("annotations/author"), name);
+        for (int i = 0; i < m_tabs->count(); ++i) {
+            if (auto *t = qobject_cast<DocumentTab *>(m_tabs->widget(i)))
+                t->setAuthor(name);
+        }
+    });
+    m_annotateAct = make(tr("Barre d'&annotation"), QKeySequence(Qt::Key_F9), [this] { m_annotBar->setVisible(m_annotateAct->isChecked()); });
+    m_annotateAct->setCheckable(true);
+    m_annotateAct->setChecked(Settings::instance().raw().value(QStringLiteral("ui/annotBar"), true).toBool());
+    m_signatureAct = make(tr("Si&gnature visuelle…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G), [this] { placeSignature(); });
     m_closeTabAct = make(tr("&Fermer l'onglet"), QKeySequence(Qt::CTRL | Qt::Key_W), [this] { closeTab(m_tabs->currentIndex()); });
     m_reloadAct = make(tr("&Recharger"), QKeySequence(Qt::CTRL | Qt::Key_R), onTab([](DocumentTab *tab) { tab->reload(); }));
     m_quitAct = make(tr("&Quitter"), QKeySequence(Qt::CTRL | Qt::Key_Q), [this] { close(); });
@@ -160,7 +191,7 @@ void MainWindow::createActions()
     m_organizeAct = make(tr("&Organiser les pages…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O), [this] { organizePages(); });
     m_organizeAct->setIcon(Icons::make(Icons::Kind::Pages));
     m_mergeAct = make(tr("&Fusionner des documents…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M), [this] { mergeDocuments(); });
-    m_splitAct = make(tr("&Séparer le document…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S), [this] { splitDocument(); });
+    m_splitAct = make(tr("&Séparer le document…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P), [this] { splitDocument(); });
     m_aboutAct = make(tr("À &propos de CARMO PDF"), QKeySequence(), [this] { showAbout(); });
 }
 
@@ -172,16 +203,27 @@ void MainWindow::createMenus()
     connect(m_recentMenu, &QMenu::aboutToShow, this, &MainWindow::updateRecentMenu);
     file->addAction(m_reloadAct);
     file->addSeparator();
+    file->addAction(m_saveAct);
+    file->addAction(m_saveAsAct);
+    file->addSeparator();
     file->addAction(m_printAct);
     file->addSeparator();
     file->addAction(m_closeTabAct);
     file->addAction(m_quitAct);
 
     QMenu *edit = menuBar()->addMenu(tr("&Édition"));
+    edit->addAction(m_undoAct);
+    edit->addAction(m_redoAct);
+    edit->addSeparator();
     edit->addAction(m_copyAct);
     edit->addAction(m_selectPageAct);
     edit->addSeparator();
     edit->addAction(m_findAct);
+    edit->addAction(m_findNextAct);
+    edit->addAction(m_findPrevAct);
+    edit->addSeparator();
+    edit->addAction(m_signatureAct);
+    edit->addAction(m_authorAct);
     edit->addAction(m_findNextAct);
     edit->addAction(m_findPrevAct);
 
@@ -196,6 +238,7 @@ void MainWindow::createMenus()
     view->addAction(m_invertAct);
     view->addSeparator();
     view->addAction(m_sidebarAct);
+    view->addAction(m_annotateAct);
     view->addAction(m_fullScreenAct);
 
     QMenu *go = menuBar()->addMenu(tr("A&ller"));
@@ -329,6 +372,27 @@ void MainWindow::openFile(const QString &path)
         if (tab == currentTab())
             m_copyAct->setEnabled(has);
     });
+    tab->view()->setAnnotationColor(QColor(Settings::instance().raw().value(QStringLiteral("annotations/color"), QStringLiteral("#ffdc00")).toString()));
+    tab->view()->setPenWidth(Settings::instance().raw().value(QStringLiteral("annotations/width"), 2.0).toDouble());
+    connect(tab, &DocumentTab::editStateChanged, this, [this, tab] {
+        if (tab == currentTab())
+            updateEditActions();
+        const int i = m_tabs->indexOf(tab);
+        if (i >= 0)
+            m_tabs->setTabText(i, (tab->isModified() ? QStringLiteral("● ") : QString()) + tab->fileName());
+    });
+    connect(tab->view(), &DocumentView::toolChanged, this, [this, tab] {
+        if (tab == currentTab())
+            updateEditActions();
+    });
+    connect(tab, &DocumentTab::saved, this, [this, tab](const QString &path) {
+        statusBar()->showMessage(tr("Enregistré : %1").arg(QDir::toNativeSeparators(path)), 4000);
+        if (QFileInfo(path).absoluteFilePath() != tab->path())
+            openFile(path);
+    });
+    connect(tab, &DocumentTab::saveFailed, this, [this](const QString &message) {
+        QMessageBox::warning(this, tr("Enregistrer"), message);
+    });
     const int index = m_tabs->addTab(tab, info.fileName());
     m_tabs->setTabToolTip(index, QDir::toNativeSeparators(absolute));
     m_tabs->setCurrentIndex(index);
@@ -372,6 +436,8 @@ void MainWindow::closeTab(int index)
     auto *tab = qobject_cast<DocumentTab *>(m_tabs->widget(index));
     if (!tab)
         return;
+    if (!confirmDiscard(tab))
+        return;
     tab->saveState();
     m_tabs->removeTab(index);
     tab->deleteLater();
@@ -394,6 +460,7 @@ void MainWindow::onCurrentTabChanged()
     }
     updateActions();
     m_copyAct->setEnabled(tab && tab->view()->hasSelection());
+    updateEditActions();
 }
 
 void MainWindow::updatePageControls(int page, int pageCount)
@@ -514,6 +581,257 @@ void MainWindow::updateActions()
         m_pageCountLabel->clear();
         m_zoomCombo->setEditText(QString());
     }
+    if (m_annotBar)
+        updateEditActions();
+}
+
+void MainWindow::createAnnotationBar()
+{
+    m_annotBar = new QToolBar(tr("Annoter"), this);
+    m_annotBar->setObjectName(QStringLiteral("annotBar"));
+    m_annotBar->setMovable(false);
+    m_annotBar->setIconSize(QSize(20, 20));
+    addToolBarBreak();
+    addToolBar(m_annotBar);
+    m_toolGroup = new QActionGroup(this);
+    m_toolGroup->setExclusive(true);
+
+    const auto tool = [this](const QString &text, DocumentView::Tool kind, Icons::Kind icon, const QKeySequence &key = {}) {
+        auto *action = new QAction(Icons::make(icon), text, this);
+        action->setCheckable(true);
+        action->setData(int(kind));
+        if (!key.isEmpty()) {
+            action->setShortcut(key);
+            action->setToolTip(QStringLiteral("%1 (%2)").arg(text, key.toString(QKeySequence::NativeText)));
+        }
+        connect(action, &QAction::triggered, this, [this, kind] {
+            if (DocumentTab *tab = currentTab())
+                tab->view()->setTool(kind);
+        });
+        addAction(action);
+        m_toolGroup->addAction(action);
+        m_annotBar->addAction(action);
+        return action;
+    };
+    QAction *select = tool(tr("Sélection"), DocumentView::Tool::Select, Icons::Kind::Cursor, QKeySequence(Qt::Key_V));
+    select->setChecked(true);
+    m_annotBar->addSeparator();
+    tool(tr("Surligner"), DocumentView::Tool::Highlight, Icons::Kind::Highlight, QKeySequence(Qt::Key_H));
+    tool(tr("Souligner"), DocumentView::Tool::Underline, Icons::Kind::Underline, QKeySequence(Qt::Key_U));
+    tool(tr("Barrer"), DocumentView::Tool::StrikeOut, Icons::Kind::StrikeOut);
+    m_annotBar->addSeparator();
+    tool(tr("Note"), DocumentView::Tool::Note, Icons::Kind::Note, QKeySequence(Qt::Key_C));
+    tool(tr("Texte"), DocumentView::Tool::FreeText, Icons::Kind::Text, QKeySequence(Qt::Key_T));
+    tool(tr("Dessin"), DocumentView::Tool::Ink, Icons::Kind::Pen, QKeySequence(Qt::Key_D));
+    tool(tr("Ligne"), DocumentView::Tool::Line, Icons::Kind::Line);
+    tool(tr("Flèche"), DocumentView::Tool::Arrow, Icons::Kind::Arrow);
+    tool(tr("Rectangle"), DocumentView::Tool::Square, Icons::Kind::Rectangle, QKeySequence(Qt::Key_R));
+    tool(tr("Ellipse"), DocumentView::Tool::Circle, Icons::Kind::Ellipse);
+    m_annotBar->addSeparator();
+
+    // Tampons : menu de textes prêts à l'emploi, et signature.
+    m_stampButton = new QToolButton(m_annotBar);
+    m_stampButton->setText(tr("Tampon"));
+    m_stampButton->setIcon(Icons::make(Icons::Kind::Stamp));
+    m_stampButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_stampButton->setPopupMode(QToolButton::InstantPopup);
+    auto *stampMenu = new QMenu(m_stampButton);
+    for (const QString &text : {tr("APPROUVÉ"), tr("REFUSÉ"), tr("CONFIDENTIEL"), tr("COPIE"), tr("BROUILLON"), tr("ORIGINAL"),
+                                tr("SIGNÉ"), tr("POUR ACCORD"), tr("VU")})
+        stampMenu->addAction(text, this, [this, text] { placeStamp(text); });
+    stampMenu->addAction(tr("REÇU LE %1").arg(QDate::currentDate().toString(QStringLiteral("dd/MM/yyyy"))), this,
+                         [this] { placeStamp(tr("REÇU LE %1").arg(QDate::currentDate().toString(QStringLiteral("dd/MM/yyyy")))); });
+    stampMenu->addSeparator();
+    stampMenu->addAction(tr("Texte personnalisé…"), this, [this] {
+        bool ok = false;
+        const QString text = QInputDialog::getText(this, tr("Tampon"), tr("Texte du tampon :"), QLineEdit::Normal, {}, &ok);
+        if (ok && !text.trimmed().isEmpty())
+            placeStamp(text.trimmed());
+    });
+    stampMenu->addAction(tr("Image (logo, signature scannée)…"), this, [this] {
+        const QString file = QFileDialog::getOpenFileName(this, tr("Image du tampon"), QString(), tr("Images (*.png *.jpg *.jpeg *.bmp)"));
+        if (file.isEmpty())
+            return;
+        const QImage image(file);
+        if (image.isNull() || !currentTab())
+            return;
+        currentTab()->view()->setStampImage(image, QFileInfo(file).fileName());
+        currentTab()->view()->setTool(DocumentView::Tool::Stamp);
+    });
+    m_stampButton->setMenu(stampMenu);
+    m_annotBar->addWidget(m_stampButton);
+    m_annotBar->addAction(m_signatureAct);
+    m_annotBar->addSeparator();
+
+    m_colorButton = new QToolButton(m_annotBar);
+    m_colorButton->setToolTip(tr("Couleur des annotations"));
+    m_colorButton->setAccessibleName(tr("Couleur des annotations"));
+    m_colorButton->setPopupMode(QToolButton::InstantPopup);
+    auto *colorMenu = new QMenu(m_colorButton);
+    struct Preset
+    {
+        const char *name;
+        QColor color;
+    };
+    const Preset presets[] = {{"Jaune", QColor(255, 220, 0)}, {"Vert", QColor(80, 200, 80)}, {"Bleu", QColor(60, 130, 255)},
+                              {"Rose", QColor(255, 120, 200)}, {"Orange", QColor(255, 140, 0)}, {"Rouge", QColor(220, 30, 30)},
+                              {"Noir", QColor(0, 0, 0)}};
+    for (const Preset &preset : presets) {
+        QPixmap swatch(16, 16);
+        swatch.fill(preset.color);
+        colorMenu->addAction(QIcon(swatch), tr(preset.name), this, [this, preset] {
+            Settings::instance().raw().setValue(QStringLiteral("annotations/color"), preset.color.name());
+            for (int i = 0; i < m_tabs->count(); ++i)
+                if (auto *t = qobject_cast<DocumentTab *>(m_tabs->widget(i)))
+                    t->view()->setAnnotationColor(preset.color);
+            updateEditActions();
+        });
+    }
+    colorMenu->addSeparator();
+    colorMenu->addAction(tr("Autre couleur…"), this, [this] { chooseColor(); });
+    m_colorButton->setMenu(colorMenu);
+    m_annotBar->addWidget(m_colorButton);
+
+    auto *widthButton = new QToolButton(m_annotBar);
+    widthButton->setText(tr("Épaisseur"));
+    widthButton->setPopupMode(QToolButton::InstantPopup);
+    auto *widthMenu = new QMenu(widthButton);
+    for (double width : {1.0, 2.0, 4.0, 8.0}) {
+        widthMenu->addAction(tr("%1 pt").arg(width), this, [this, width] {
+            Settings::instance().raw().setValue(QStringLiteral("annotations/width"), width);
+            for (int i = 0; i < m_tabs->count(); ++i)
+                if (auto *t = qobject_cast<DocumentTab *>(m_tabs->widget(i)))
+                    t->view()->setPenWidth(width);
+        });
+    }
+    widthButton->setMenu(widthMenu);
+    m_annotBar->addWidget(widthButton);
+    m_annotBar->addSeparator();
+    m_annotBar->addAction(m_undoAct);
+    m_annotBar->addAction(m_redoAct);
+    m_annotBar->addAction(m_saveAct);
+    m_undoAct->setIcon(Icons::make(Icons::Kind::Undo));
+    m_redoAct->setIcon(Icons::make(Icons::Kind::Redo));
+    m_saveAct->setIcon(Icons::make(Icons::Kind::Save));
+    m_signatureAct->setIcon(Icons::make(Icons::Kind::Signature));
+    m_annotBar->setVisible(m_annotateAct->isChecked());
+    updateEditActions();
+}
+
+void MainWindow::updateEditActions()
+{
+    DocumentTab *tab = currentTab();
+    const bool editable = tab && tab->isEditable();
+    m_saveAct->setEnabled(editable && tab->isModified());
+    m_saveAsAct->setEnabled(editable);
+    m_undoAct->setEnabled(editable && tab->canUndo());
+    m_redoAct->setEnabled(editable && tab->canRedo());
+    m_signatureAct->setEnabled(editable);
+    m_stampButton->setEnabled(editable);
+    for (QAction *action : m_toolGroup->actions()) {
+        action->setEnabled(editable);
+        if (tab && action->data().toInt() == int(tab->view()->tool()))
+            action->setChecked(true);
+    }
+    const QColor color = tab ? tab->view()->annotationColor()
+                             : QColor(Settings::instance().raw().value(QStringLiteral("annotations/color"), QStringLiteral("#ffdc00")).toString());
+    QPixmap swatch(18, 18);
+    swatch.fill(color);
+    m_colorButton->setIcon(QIcon(swatch));
+    Settings::instance().raw().setValue(QStringLiteral("ui/annotBar"), m_annotateAct->isChecked());
+}
+
+void MainWindow::chooseColor()
+{
+    DocumentTab *tab = currentTab();
+    const QColor current = tab ? tab->view()->annotationColor() : QColor(255, 220, 0);
+    const QColor color = QColorDialog::getColor(current, this, tr("Couleur des annotations"), QColorDialog::ShowAlphaChannel);
+    if (!color.isValid())
+        return;
+    Settings::instance().raw().setValue(QStringLiteral("annotations/color"), color.name(QColor::HexArgb));
+    for (int i = 0; i < m_tabs->count(); ++i)
+        if (auto *t = qobject_cast<DocumentTab *>(m_tabs->widget(i)))
+            t->view()->setAnnotationColor(color);
+    updateEditActions();
+}
+
+void MainWindow::placeStamp(const QString &text)
+{
+    DocumentTab *tab = currentTab();
+    if (!tab)
+        return;
+    // Image du tampon dessinée ici : identique dans tous les lecteurs.
+    const QColor color(196, 43, 28);
+    const double scale = 4.0;
+    QFont font(QStringLiteral("Arial"));
+    font.setBold(true);
+    font.setPixelSize(int(26 * scale));
+    const QFontMetrics metrics(font);
+    const int width = metrics.horizontalAdvance(text) + int(40 * scale);
+    const int height = int(60 * scale);
+    QImage image(width, height, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    {
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(color, 3 * scale));
+        painter.drawRoundedRect(QRectF(3 * scale, 3 * scale, width - 6 * scale, height - 6 * scale), 6 * scale, 6 * scale);
+        painter.setFont(font);
+        painter.drawText(image.rect(), Qt::AlignCenter, text);
+    }
+    tab->view()->setStampImage(image, text);
+    tab->view()->setTool(DocumentView::Tool::Stamp);
+    statusBar()->showMessage(tr("Cliquez sur la page pour poser le tampon « %1 » (glissez pour choisir sa taille).").arg(text), 6000);
+}
+
+void MainWindow::placeSignature()
+{
+    DocumentTab *tab = currentTab();
+    if (!tab)
+        return;
+    SignatureDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted || dialog.signature().isNull())
+        return;
+    tab->view()->setStampImage(dialog.signature(), tr("Signature"));
+    tab->view()->setTool(DocumentView::Tool::Stamp);
+    statusBar()->showMessage(tr("Cliquez sur la page à l'endroit de la signature (glissez pour choisir sa taille)."), 6000);
+}
+
+void MainWindow::saveCurrent()
+{
+    DocumentTab *tab = currentTab();
+    if (!tab || !tab->isEditable())
+        return;
+    tab->save();
+}
+
+void MainWindow::saveCurrentAs()
+{
+    DocumentTab *tab = currentTab();
+    if (!tab || !tab->isEditable())
+        return;
+    const QString suggested = QFileInfo(tab->path()).absolutePath() + QLatin1Char('/') + QFileInfo(tab->path()).completeBaseName()
+                              + tr(" - annoté.pdf");
+    const QString target = QFileDialog::getSaveFileName(this, tr("Enregistrer sous"), suggested, tr("Documents PDF (*.pdf)"));
+    if (!target.isEmpty())
+        tab->saveAs(target);
+}
+
+bool MainWindow::confirmDiscard(DocumentTab *tab)
+{
+    if (!tab || !tab->isModified())
+        return true;
+    m_tabs->setCurrentWidget(tab);
+    const auto answer = QMessageBox::question(this, tr("Modifications non enregistrées"),
+                                              tr("« %1 » contient des annotations non enregistrées. Les enregistrer ?").arg(tab->fileName()),
+                                              QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+    if (answer == QMessageBox::Cancel)
+        return false;
+    if (answer == QMessageBox::Save) {
+        tab->save();
+        return !tab->isModified() || true; // l'enregistrement est asynchrone : la fermeture suit
+    }
+    return true;
 }
 
 void MainWindow::organizePages()
@@ -521,14 +839,25 @@ void MainWindow::organizePages()
     DocumentTab *tab = currentTab();
     if (!tab || !tab->isLoaded())
         return;
+    if (!confirmDiscard(tab))
+        return;
     PageOrganizer organizer(tab->path(), tab->password(), this);
-    connect(&organizer, &PageOrganizer::documentSaved, this, [this, tab](const QString &path) {
-        if (QFileInfo(path).absoluteFilePath() == tab->path())
+    bool released = false;
+    connect(&organizer, &PageOrganizer::overwriteRequested, this, [tab, &released] {
+        tab->releaseFile();
+        released = true;
+    });
+    connect(&organizer, &PageOrganizer::documentSaved, this, [this, tab, &released](const QString &path) {
+        if (QFileInfo(path).absoluteFilePath() == tab->path()) {
             tab->reload();
-        else
+            released = false;
+        } else {
             openFile(path);
+        }
     });
     organizer.exec();
+    if (released)
+        tab->reload(); // l'enregistrement a échoué : on rouvre tel quel
 }
 
 void MainWindow::mergeDocuments()
@@ -568,7 +897,12 @@ void MainWindow::showAbout()
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     for (int i = 0; i < m_tabs->count(); ++i) {
-        if (auto *tab = qobject_cast<DocumentTab *>(m_tabs->widget(i)))
+        auto *tab = qobject_cast<DocumentTab *>(m_tabs->widget(i));
+        if (tab && !confirmDiscard(tab)) {
+            event->ignore();
+            return;
+        }
+        if (tab)
             tab->saveState();
     }
     if (isFullScreen())

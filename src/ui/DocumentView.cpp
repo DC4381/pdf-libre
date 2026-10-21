@@ -11,6 +11,7 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPinchGesture>
 #include <QScrollBar>
 #include <QScroller>
@@ -54,6 +55,10 @@ DocumentView::DocumentView(QWidget *parent)
     m_requestTimer.setSingleShot(true);
     m_requestTimer.setInterval(8);
     connect(&m_requestTimer, &QTimer::timeout, this, &DocumentView::emitRequests);
+    // Les traits tracés à la suite forment un seul dessin.
+    m_inkTimer.setSingleShot(true);
+    m_inkTimer.setInterval(1200);
+    connect(&m_inkTimer, &QTimer::timeout, this, &DocumentView::commitInk);
 }
 
 void DocumentView::reset(int pageCount)
@@ -65,6 +70,12 @@ void DocumentView::reset(int pageCount)
     m_cacheBytes = 0;
     m_links.clear();
     m_pressedLink = nullptr;
+    m_annotations.clear();
+    m_selectedAnnot = -1;
+    m_selectedAnnotPage = -1;
+    m_drafting = false;
+    m_inkStrokes.clear();
+    m_inkTimer.stop();
     clearSelection();
     clearSearch();
     m_currentPage = 0;
@@ -485,6 +496,7 @@ void DocumentView::drawPage(QPainter &painter, int page, const QRectF &rect)
         painter.setPen(QPen(QColor(220, 90, 0), 1.5));
         painter.drawRect(r);
     }
+    drawAnnotationOverlay(painter, page, rect);
 }
 
 void DocumentView::paintEvent(QPaintEvent *)
@@ -587,11 +599,26 @@ void DocumentView::keyPressEvent(QKeyEvent *event)
         zoomOut();
         break;
     case Qt::Key_Escape:
-        if (!hasSelection()) {
+        if (m_drafting || !m_inkStrokes.isEmpty()) {
+            m_drafting = false;
+            m_inkStrokes.clear();
+            m_inkTimer.stop();
+            viewport()->update();
+        } else if (m_selectedAnnot >= 0) {
+            selectAnnotation(-1, -1);
+        } else if (hasSelection()) {
+            clearSelection();
+        } else if (m_tool != Tool::Select) {
+            setTool(Tool::Select);
+        } else {
             QAbstractScrollArea::keyPressEvent(event);
             return;
         }
-        clearSelection();
+        break;
+    case Qt::Key_Delete:
+    case Qt::Key_Backspace:
+        if (m_selectedAnnot >= 0)
+            emit annotationDeleteRequested(m_selectedAnnotPage, m_selectedAnnot);
         break;
     default:
         if (event->matches(QKeySequence::Copy) && hasSelection()) {
@@ -746,7 +773,16 @@ void DocumentView::updateCursor(QPointF pos)
         viewport()->setCursor(Qt::ClosedHandCursor);
         return;
     }
+    if (m_tool != Tool::Select) {
+        const bool textTool = m_tool == Tool::Highlight || m_tool == Tool::Underline || m_tool == Tool::StrikeOut;
+        viewport()->setCursor(textTool ? Qt::IBeamCursor : Qt::CrossCursor);
+        return;
+    }
     const PagePoint point = pagePointAt(pos);
+    if (annotationAt(point)) {
+        viewport()->setCursor(Qt::SizeAllCursor);
+        return;
+    }
     if (!pageRect(point.page).contains(pos)) {
         viewport()->setCursor(Qt::ArrowCursor);
     } else if (linkAt(point)) {
@@ -768,6 +804,8 @@ void DocumentView::mousePressEvent(QMouseEvent *event)
     m_pressPos = event->pos();
     const PagePoint point = pagePointAt(event->position());
     const bool onPage = pageRect(point.page).contains(event->position());
+    if (toolPress(event, point, onPage))
+        return;
     m_pressedLink = onPage ? linkAt(point) : nullptr;
 
     // Un clic simple après un double-clic rapproché sélectionne la ligne.
@@ -799,6 +837,8 @@ void DocumentView::mousePressEvent(QMouseEvent *event)
 
 void DocumentView::mouseMoveEvent(QMouseEvent *event)
 {
+    if (toolMove(event))
+        return;
     if (m_panning) {
         const QPoint delta = event->pos() - m_panLast;
         m_panLast = event->pos();
@@ -830,6 +870,8 @@ void DocumentView::mouseReleaseEvent(QMouseEvent *event)
         return;
     }
     const bool moved = (event->pos() - m_pressPos).manhattanLength() > QApplication::startDragDistance();
+    if (toolRelease(event))
+        return;
     if (m_pressedLink && !moved) {
         const PdfLink link = *m_pressedLink;
         m_pressedLink = nullptr;
@@ -856,6 +898,16 @@ void DocumentView::mouseDoubleClickEvent(QMouseEvent *event)
         return;
     }
     const PagePoint point = pagePointAt(event->position());
+    if (m_tool == Tool::Select) {
+        if (const AnnotationInfo *info = annotationAt(point)) {
+            selectAnnotation(info->page, info->id);
+            emit annotationEditRequested(info->page, info->id);
+            event->accept();
+            return;
+        }
+    }
+    if (m_tool != Tool::Select)
+        return;
     if (!pageRect(point.page).contains(event->position()))
         return;
     m_lastDoubleClick = QDateTime::currentMSecsSinceEpoch();
@@ -869,6 +921,15 @@ void DocumentView::mouseDoubleClickEvent(QMouseEvent *event)
 void DocumentView::contextMenuEvent(QContextMenuEvent *event)
 {
     QMenu menu(this);
+    const PagePoint hit = pagePointAt(event->pos());
+    if (const AnnotationInfo *info = annotationAt(hit)) {
+        const int page = info->page;
+        const int id = info->id;
+        selectAnnotation(page, id);
+        menu.addAction(tr("Modifier le commentaire…"), this, [this, page, id] { emit annotationEditRequested(page, id); });
+        menu.addAction(tr("Supprimer l'annotation"), this, [this, page, id] { emit annotationDeleteRequested(page, id); });
+        menu.addSeparator();
+    }
     QAction *copy = menu.addAction(tr("Copier"), this, &DocumentView::copySelection);
     copy->setShortcut(QKeySequence::Copy);
     copy->setEnabled(hasSelection());
@@ -883,4 +944,333 @@ void DocumentView::contextMenuEvent(QContextMenuEvent *event)
         }
     }
     menu.exec(event->globalPos());
+}
+
+// --- Outils d'annotation ----------------------------------------------------
+
+void DocumentView::setTool(Tool tool)
+{
+    if (m_tool == tool)
+        return;
+    commitInk();
+    m_drafting = false;
+    m_tool = tool;
+    if (tool != Tool::Select) {
+        clearSelection();
+        selectAnnotation(-1, -1);
+    }
+    updateCursor(viewport()->mapFromGlobal(QCursor::pos()));
+    emit toolChanged(tool);
+    viewport()->update();
+}
+
+void DocumentView::setStampImage(const QImage &image, const QString &label)
+{
+    m_stampImage = image;
+    m_stampLabel = label;
+}
+
+void DocumentView::setPageAnnotations(int page, const QVector<AnnotationInfo> &annotations)
+{
+    if (annotations.isEmpty())
+        m_annotations.remove(page);
+    else
+        m_annotations.insert(page, annotations);
+    if (m_selectedAnnotPage == page) {
+        bool stillThere = false;
+        for (const AnnotationInfo &info : annotations)
+            stillThere = stillThere || info.id == m_selectedAnnot;
+        if (!stillThere)
+            selectAnnotation(-1, -1);
+    }
+    viewport()->update();
+}
+
+void DocumentView::invalidatePages(const QVector<int> &pages)
+{
+    for (int page : pages) {
+        for (QHash<int, CachedImage> *map : {&m_full, &m_clip}) {
+            const auto it = map->find(page);
+            if (it != map->end()) {
+                m_cacheBytes -= bytesOf(it->image);
+                map->erase(it);
+            }
+        }
+    }
+    viewport()->update();
+    scheduleRequests();
+}
+
+void DocumentView::selectAnnotation(int page, int id)
+{
+    if (m_selectedAnnot == id && m_selectedAnnotPage == page)
+        return;
+    m_selectedAnnot = id;
+    m_selectedAnnotPage = id >= 0 ? page : -1;
+    emit annotationSelected(m_selectedAnnotPage, m_selectedAnnot);
+    viewport()->update();
+}
+
+const AnnotationInfo *DocumentView::annotationAt(const PagePoint &point) const
+{
+    const auto it = m_annotations.constFind(point.page);
+    if (it == m_annotations.cend())
+        return nullptr;
+    // Les notes sont petites : zone de clic élargie. Dernière dessinée = au-dessus.
+    for (auto a = it->crbegin(); a != it->crend(); ++a) {
+        const QRectF zone = a->rect.adjusted(-3, -3, 3, 3);
+        if (zone.contains(point.point))
+            return &*a;
+    }
+    return nullptr;
+}
+
+void DocumentView::commitInk()
+{
+    m_inkTimer.stop();
+    if (m_inkStrokes.isEmpty())
+        return;
+    const QVector<InkStroke> strokes = m_inkStrokes;
+    const int page = m_inkPage;
+    m_inkStrokes.clear();
+    m_inkPage = -1;
+    emit inkRequested(page, strokes, m_annotColor, m_penWidth);
+}
+
+bool DocumentView::toolPress(QMouseEvent *event, const PagePoint &point, bool onPage)
+{
+    if (m_tool == Tool::Select) {
+        if (const AnnotationInfo *info = annotationAt(point)) {
+            selectAnnotation(info->page, info->id);
+            m_movingAnnot = true;
+            m_moveRect = info->rect;
+            m_moveOffset = point.point - info->rect.topLeft();
+            event->accept();
+            return true;
+        }
+        if (m_selectedAnnot >= 0)
+            selectAnnotation(-1, -1);
+        return false;
+    }
+    if (!onPage) {
+        event->accept();
+        return true;
+    }
+    switch (m_tool) {
+    case Tool::Highlight:
+    case Tool::Underline:
+    case Tool::StrikeOut:
+        if (m_text && m_text->hasTextAt(point.page, point.point)) {
+            clearSelection();
+            m_selMode = PdfDocument::SnapMode::Chars;
+            m_selStart = m_selEnd = point;
+            m_selecting = true;
+        }
+        break;
+    case Tool::Ink:
+        if (m_inkPage >= 0 && m_inkPage != point.page)
+            commitInk();
+        m_inkTimer.stop();
+        m_inkPage = point.page;
+        m_inkStrokes.append(InkStroke{point.point});
+        m_drafting = true;
+        break;
+    default:
+        m_drafting = true;
+        m_draftStart = m_draftEnd = point;
+        break;
+    }
+    event->accept();
+    return true;
+}
+
+bool DocumentView::toolMove(QMouseEvent *event)
+{
+    if (m_movingAnnot) {
+        const PagePoint point = pagePointAt(event->position());
+        if (point.page == m_selectedAnnotPage)
+            m_moveRect.moveTopLeft(point.point - m_moveOffset);
+        viewport()->update();
+        event->accept();
+        return true;
+    }
+    if (m_tool == Tool::Select)
+        return false;
+    if (m_selecting)
+        return false; // sélection de texte : traitement normal
+    if (!m_drafting) {
+        updateCursor(event->position());
+        event->accept();
+        return true;
+    }
+    const PagePoint point = pagePointAt(event->position());
+    if (m_tool == Tool::Ink) {
+        if (point.page == m_inkPage && !m_inkStrokes.isEmpty())
+            m_inkStrokes.last().append(point.point);
+    } else {
+        // Le brouillon reste sur la page de départ.
+        if (point.page == m_draftStart.page)
+            m_draftEnd = point;
+    }
+    viewport()->update();
+    event->accept();
+    return true;
+}
+
+bool DocumentView::toolRelease(QMouseEvent *event)
+{
+    if (m_movingAnnot) {
+        m_movingAnnot = false;
+        const bool moved = (event->pos() - m_pressPos).manhattanLength() > QApplication::startDragDistance();
+        if (moved && m_selectedAnnot >= 0)
+            emit annotationMoveRequested(m_selectedAnnotPage, m_selectedAnnot, m_moveRect);
+        viewport()->update();
+        event->accept();
+        return true;
+    }
+    if (m_tool == Tool::Select)
+        return false;
+
+    const bool textTool = m_tool == Tool::Highlight || m_tool == Tool::Underline || m_tool == Tool::StrikeOut;
+    if (textTool) {
+        if (m_selecting) {
+            m_selecting = false;
+            if (hasSelection()) {
+                const AnnotationKind kind = m_tool == Tool::Underline ? AnnotationKind::Underline
+                                            : m_tool == Tool::StrikeOut ? AnnotationKind::StrikeOut
+                                                                        : AnnotationKind::Highlight;
+                emit textMarkupRequested(kind, m_selectionRects);
+            }
+            clearSelection();
+        }
+        event->accept();
+        return true;
+    }
+    if (!m_drafting) {
+        event->accept();
+        return true;
+    }
+    m_drafting = false;
+    if (m_tool == Tool::Ink) {
+        if (!m_inkStrokes.isEmpty() && m_inkStrokes.last().size() < 2)
+            m_inkStrokes.last().append(m_inkStrokes.last().first() + QPointF(0.5, 0.5)); // point simple
+        m_inkTimer.start();
+        event->accept();
+        return true;
+    }
+
+    const int page = m_draftStart.page;
+    const QPointF a = m_draftStart.point;
+    const QPointF b = m_draftEnd.point;
+    const bool dragged = (event->pos() - m_pressPos).manhattanLength() > QApplication::startDragDistance();
+    const QRectF box = QRectF(a, b).normalized();
+    switch (m_tool) {
+    case Tool::Note:
+        emit noteRequested(page, a);
+        break;
+    case Tool::FreeText:
+        emit freeTextRequested(page, dragged && box.width() > 10 ? box : QRectF(a, QSizeF(220, 28)));
+        break;
+    case Tool::Line:
+    case Tool::Arrow:
+        if (dragged)
+            emit shapeRequested(m_tool == Tool::Arrow ? AnnotationKind::Arrow : AnnotationKind::Line, page, QRectF(a, b),
+                                m_annotColor, m_penWidth);
+        break;
+    case Tool::Square:
+    case Tool::Circle:
+        if (dragged && box.width() > 2 && box.height() > 2)
+            emit shapeRequested(m_tool == Tool::Circle ? AnnotationKind::Circle : AnnotationKind::Square, page, box, m_annotColor,
+                                m_penWidth);
+        break;
+    case Tool::Stamp: {
+        if (m_stampImage.isNull())
+            break;
+        const double aspect = double(m_stampImage.height()) / std::max(1, m_stampImage.width());
+        QRectF rect;
+        if (dragged && box.width() > 10)
+            rect = QRectF(box.topLeft(), QSizeF(box.width(), box.width() * aspect));
+        else
+            rect = QRectF(a - QPointF(80, 80 * aspect), QSizeF(160, 160 * aspect));
+        emit stampRequested(page, rect, m_stampImage, m_stampLabel);
+        break;
+    }
+    default:
+        break;
+    }
+    viewport()->update();
+    event->accept();
+    return true;
+}
+
+void DocumentView::drawAnnotationOverlay(QPainter &painter, int page, const QRectF &rect)
+{
+    const double ppp = pixelsPerPoint();
+    const auto toView = [&](const QPointF &p) { return QPointF(rect.left() + p.x() * ppp, rect.top() + p.y() * ppp); };
+    const auto toViewRect = [&](const QRectF &r) { return QRectF(toView(r.topLeft()), toView(r.bottomRight())).normalized(); };
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    // Annotation sélectionnée (ou en cours de déplacement).
+    if (m_selectedAnnot >= 0 && m_selectedAnnotPage == page) {
+        for (const AnnotationInfo &info : m_annotations.value(page)) {
+            if (info.id != m_selectedAnnot)
+                continue;
+            const QRectF r = toViewRect(m_movingAnnot ? m_moveRect : info.rect).adjusted(-2, -2, 2, 2);
+            painter.setPen(QPen(palette().color(QPalette::Highlight), 1.5, Qt::DashLine));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRect(r);
+        }
+    }
+
+    // Dessin à main levée en attente.
+    if (m_inkPage == page && !m_inkStrokes.isEmpty()) {
+        QPen pen(m_annotColor, m_penWidth * ppp, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        painter.setPen(pen);
+        painter.setBrush(Qt::NoBrush);
+        for (const InkStroke &stroke : m_inkStrokes) {
+            QPainterPath path;
+            path.moveTo(toView(stroke.first()));
+            for (int i = 1; i < stroke.size(); ++i)
+                path.lineTo(toView(stroke[i]));
+            painter.drawPath(path);
+        }
+    }
+
+    // Brouillon de forme, de texte ou de tampon.
+    if (m_drafting && m_draftStart.page == page && m_tool != Tool::Ink) {
+        const QPointF a = toView(m_draftStart.point);
+        const QPointF b = toView(m_draftEnd.point);
+        QPen pen(m_annotColor, std::max(1.0, m_penWidth * ppp));
+        painter.setPen(pen);
+        painter.setBrush(Qt::NoBrush);
+        switch (m_tool) {
+        case Tool::Line:
+        case Tool::Arrow:
+            painter.drawLine(a, b);
+            break;
+        case Tool::Circle:
+            painter.drawEllipse(QRectF(a, b).normalized());
+            break;
+        case Tool::Square:
+            painter.drawRect(QRectF(a, b).normalized());
+            break;
+        case Tool::FreeText:
+            painter.setPen(QPen(palette().color(QPalette::Highlight), 1, Qt::DashLine));
+            painter.drawRect(QRectF(a, b).normalized());
+            break;
+        case Tool::Stamp:
+            if (!m_stampImage.isNull()) {
+                const double aspect = double(m_stampImage.height()) / std::max(1, m_stampImage.width());
+                const QRectF box = QRectF(a, b).normalized();
+                const QRectF target = box.width() > 10 ? QRectF(box.topLeft(), QSizeF(box.width(), box.width() * aspect))
+                                                       : QRectF(a - QPointF(80, 80 * aspect) * ppp, QSizeF(160, 160 * aspect) * ppp);
+                painter.setOpacity(0.7);
+                painter.drawImage(target, m_stampImage);
+                painter.setOpacity(1.0);
+            }
+            break;
+        default:
+            break;
+        }
+    }
 }

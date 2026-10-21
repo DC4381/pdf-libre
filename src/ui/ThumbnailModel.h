@@ -20,6 +20,7 @@ public:
 
     void reset(int pageCount);
     void setThumbnail(int page, const QImage &image);
+    void invalidate(int page);
     QSize thumbnailSize() const { return m_size; }
 
     int rowCount(const QModelIndex &parent = {}) const override;

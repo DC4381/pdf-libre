@@ -24,6 +24,8 @@ class DocumentView : public QAbstractScrollArea
 public:
     enum class ZoomMode { FitWidth = 0, FitPage = 1, Custom = 2 };
     Q_ENUM(ZoomMode)
+    enum class Tool { Select, Highlight, Underline, StrikeOut, Note, FreeText, Ink, Line, Arrow, Square, Circle, Stamp };
+    Q_ENUM(Tool)
 
     explicit DocumentView(QWidget *parent = nullptr);
 
@@ -58,6 +60,25 @@ public:
     // Rectangle de la page dans la fenêtre, en pixels logiques.
     QRectF pageViewportRect(int page) const;
 
+    // --- Annotations ------------------------------------------------------------
+    void setTool(Tool tool);
+    Tool tool() const { return m_tool; }
+    void setAnnotationColor(const QColor &color) { m_annotColor = color; }
+    QColor annotationColor() const { return m_annotColor; }
+    void setPenWidth(double width) { m_penWidth = width; }
+    double penWidth() const { return m_penWidth; }
+    // Image à poser avec l'outil Tampon (tampon texte déjà dessiné, signature, logo).
+    void setStampImage(const QImage &image, const QString &label);
+    void setPageAnnotations(int page, const QVector<AnnotationInfo> &annotations);
+    QVector<AnnotationInfo> pageAnnotations(int page) const { return m_annotations.value(page); }
+    // Oublie les rendus de ces pages et les redemande.
+    void invalidatePages(const QVector<int> &pages);
+    int selectedAnnotation() const { return m_selectedAnnot; }
+    int selectedAnnotationPage() const { return m_selectedAnnotPage; }
+    void selectAnnotation(int page, int id);
+    // Termine le dessin en cours (traits accumulés) : envoyé comme une seule annotation.
+    void commitInk();
+
     void setSearchHits(int page, const QVector<QRectF> &hits);
     void setCurrentHit(int page, const QRectF &rect);
     void clearSearch();
@@ -71,6 +92,17 @@ signals:
     void requestsChanged(const QVector<RenderRequest> &requests);
     void selectionChanged(bool hasSelection);
     void externalLinkActivated(const QString &uri);
+    void toolChanged(DocumentView::Tool tool);
+    void textMarkupRequested(AnnotationKind kind, const QHash<int, QVector<QRectF>> &rectsByPage);
+    void noteRequested(int page, QPointF point);
+    void freeTextRequested(int page, QRectF rect);
+    void inkRequested(int page, const QVector<InkStroke> &strokes, const QColor &color, double width);
+    void shapeRequested(AnnotationKind kind, int page, QRectF rect, const QColor &color, double width);
+    void stampRequested(int page, QRectF rect, const QImage &image, const QString &label);
+    void annotationSelected(int page, int id);
+    void annotationDeleteRequested(int page, int id);
+    void annotationEditRequested(int page, int id);
+    void annotationMoveRequested(int page, int id, QRectF rect);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -112,6 +144,11 @@ private:
     void evictCache();
     void handlePinch(QPinchGesture *gesture);
     void drawPage(QPainter &painter, int page, const QRectF &rect);
+    void drawAnnotationOverlay(QPainter &painter, int page, const QRectF &rect);
+    const AnnotationInfo *annotationAt(const PagePoint &point) const;
+    bool toolPress(QMouseEvent *event, const PagePoint &point, bool onPage);
+    bool toolMove(QMouseEvent *event);
+    bool toolRelease(QMouseEvent *event);
     void updateSelection();
     const PdfLink *linkAt(const PagePoint &point);
     void updateCursor(QPointF pos);
@@ -151,4 +188,23 @@ private:
     QHash<int, QVector<PdfLink>> m_links;
     const PdfLink *m_pressedLink = nullptr;
     bool m_invert = false;
+
+    // Outils d'annotation.
+    Tool m_tool = Tool::Select;
+    QColor m_annotColor = QColor(255, 220, 0);
+    double m_penWidth = 2.0;
+    QImage m_stampImage;
+    QString m_stampLabel;
+    QHash<int, QVector<AnnotationInfo>> m_annotations;
+    int m_selectedAnnot = -1;
+    int m_selectedAnnotPage = -1;
+    bool m_drafting = false;
+    PagePoint m_draftStart;
+    PagePoint m_draftEnd;
+    QVector<InkStroke> m_inkStrokes;
+    int m_inkPage = -1;
+    QTimer m_inkTimer;
+    bool m_movingAnnot = false;
+    QPointF m_moveOffset; // en points : position du clic dans l'annotation
+    QRectF m_moveRect;    // rectangle déplacé, en points
 };

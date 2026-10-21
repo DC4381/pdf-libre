@@ -49,10 +49,32 @@ public:
 
     void showSearch();
     void search(const QString &text);
+
+    // Annotations.
+    bool isEditable() const { return m_editable; }
+    bool isModified() const { return m_modified; }
+    bool canUndo() const { return m_canUndo; }
+    bool canRedo() const { return m_canRedo; }
+    void undo();
+    void redo();
+    // Enregistre (incrémental si possible) après copie de sauvegarde de l'original.
+    void save();
+    void saveAs(const QString &path);
+    QString author() const;
+    void setAuthor(const QString &author);
+    // Ajouts sans boîte de dialogue, pour l'interface et les tests.
+    void addNote(int page, QPointF point, const QString &text);
+    void addFreeText(int page, const QRectF &rect, const QString &text, double fontSize);
+    void addStamp(int page, const QRectF &rect, const QImage &image, const QString &label);
+    void editAnnotation(int page, int id, const QString &text);
+    void deleteAnnotation(int page, int id);
     void findNext();
     void findPrevious();
     void saveState() const;
     void reload();
+    // Ferme toutes les instances du document (le fichier peut alors être
+    // remplacé par un autre programme) ; reload() rouvre.
+    void releaseFile();
 
 signals:
     void loaded();
@@ -60,6 +82,9 @@ signals:
     void titleChanged();
     void pageChanged(int page, int pageCount);
     void zoomChanged(double zoom, DocumentView::ZoomMode mode);
+    void editStateChanged();
+    void saved(const QString &path);
+    void saveFailed(const QString &message);
 
 private:
     struct Hit
@@ -74,6 +99,8 @@ private:
     void onPageSizes(int first, const QVector<QSizeF> &sizes);
     void onRendered(const RenderRequest &request, const QImage &image);
     void onOutline(const OutlineList &outline);
+    void onAnnotations(int page, const QVector<AnnotationInfo> &annotations);
+    void refreshCommentList();
     void addOutlineItems(QTreeWidgetItem *parent, const OutlineList &items);
     void pushRequests();
     void startSearch(const QString &text);
@@ -99,6 +126,7 @@ private:
     QTabWidget *m_sidebar;
     QListView *m_thumbnails;
     QTreeWidget *m_outline;
+    QTreeWidget *m_comments;
     DocumentView *m_view;
     ThumbnailModel *m_thumbModel;
 
@@ -114,4 +142,11 @@ private:
 
     QFileSystemWatcher m_watcher;
     QTimer m_reloadTimer;
+    qint64 m_ignoreChangesUntil = 0;
+
+    bool m_editable = false;
+    bool m_modified = false;
+    bool m_canUndo = false;
+    bool m_canRedo = false;
+    QMap<int, QVector<AnnotationInfo>> m_annotations;
 };

@@ -40,6 +40,34 @@ void RenderService::setRequests(const QVector<RenderRequest> &urgent, const QVec
     m_wake.notify_all();
 }
 
+void RenderService::edit(const EditFn &fn)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_edits.append(fn);
+    }
+    m_wake.notify_all();
+}
+
+void RenderService::setAuthor(const QString &author)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_author = author;
+        m_authorChanged = true;
+    }
+    m_wake.notify_all();
+}
+
+void RenderService::save(const QString &path)
+{
+    edit([this, path](PdfDocument &doc) {
+        const bool ok = doc.save(path);
+        emit saveFinished(ok, path, ok ? QString() : doc.lastError());
+        return QVector<int>{};
+    });
+}
+
 void RenderService::run()
 {
     PdfDocument doc;
@@ -52,6 +80,8 @@ void RenderService::run()
     const int count = doc.pageCount();
     QString title = doc.metadata("info:Title");
     emit opened(count, title);
+    const bool editable = doc.enableEditing();
+    emit editableChanged(editable);
 
     // Tailles déjà connues, pour ne pas recharger une page avant son rendu.
     QVector<QSizeF> known(count);
@@ -72,30 +102,58 @@ void RenderService::run()
         emit pageSizesReady(0, sizes);
     }
     bool outlineDone = false;
+    // Inventaire des annotations existantes, page par page, après le reste.
+    int annotsScanned = editable ? 0 : count;
 
     for (;;) {
         RenderRequest request;
         bool computeSizes = false;
         bool loadOutline = false;
+        bool scanAnnots = false;
+        EditFn edit;
         {
             std::unique_lock<std::mutex> lock(m_mutex);
             m_wake.wait(lock, [&] {
-                return m_stop || !m_urgent.isEmpty() || sizesDone < count || !outlineDone || !m_background.isEmpty();
+                return m_stop || !m_edits.isEmpty() || m_authorChanged || !m_urgent.isEmpty() || sizesDone < count || !outlineDone
+                       || !m_background.isEmpty() || annotsScanned < count;
             });
             if (m_stop)
                 return;
-            if (!m_urgent.isEmpty()) {
+            if (m_authorChanged) {
+                doc.setAuthor(m_author);
+                m_authorChanged = false;
+            }
+            if (!m_edits.isEmpty()) {
+                edit = m_edits.takeFirst();
+            } else if (!m_urgent.isEmpty()) {
                 request = m_urgent.takeFirst();
             } else if (!outlineDone) {
                 loadOutline = true;
             } else if (sizesDone < count) {
                 computeSizes = true;
-            } else {
+            } else if (!m_background.isEmpty()) {
                 request = m_background.takeFirst();
+            } else {
+                scanAnnots = true;
             }
         }
 
-        if (loadOutline) {
+        if (edit) {
+            const QVector<int> pages = edit(doc);
+            for (int page : pages)
+                emit annotationsChanged(page, doc.annotations(page));
+            if (!pages.isEmpty())
+                emit pagesChanged(pages);
+            emit editStateChanged(doc.canUndo(), doc.canRedo(), doc.hasUnsavedChanges());
+        } else if (scanAnnots) {
+            const int end = std::min(count, annotsScanned + 32);
+            for (int i = annotsScanned; i < end; ++i) {
+                const QVector<AnnotationInfo> list = doc.annotations(i);
+                if (!list.isEmpty())
+                    emit annotationsChanged(i, list);
+            }
+            annotsScanned = end;
+        } else if (loadOutline) {
             emit outlineReady(doc.outline());
             outlineDone = true;
         } else if (computeSizes) {

@@ -82,6 +82,9 @@ public:
     QString savedPath() const { return m_savedPath; }
 
 signals:
+    // Émis juste avant de remplacer le fichier d'origine : l'appelant doit
+    // fermer ses propres instances du document (verrou Windows).
+    void overwriteRequested(const QString &path);
     void documentSaved(const QString &path);
 
 protected:
@@ -90,6 +93,7 @@ protected:
 
 private:
     void buildUi();
+    void resetRenderer();
     void setPages(const QVector<PageRef> &pages, bool record = true);
     void rebuildList();
     void renumber();

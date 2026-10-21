@@ -6,9 +6,10 @@ Lecteur PDF gratuit, libre et rapide pour Windows, inspiré de SumatraPDF.
 Aucun compte, aucune publicité, aucun abonnement : vos documents restent sur
 votre ordinateur.
 
-Version actuelle : **0.3** (lecture et organisation des pages). La feuille de
-route complète (annotations, formulaires, OCR, signatures, édition) figure
-dans le cahier des charges du projet.
+Version actuelle : **0.4** (lecture, organisation des pages, annotations,
+signature visuelle). La feuille de route complète (formulaires, OCR,
+signature avec certificat, conversions, édition du texte) figure dans le
+cahier des charges du projet.
 
 ## Installer
 
@@ -47,6 +48,8 @@ mode portable : rien n'est écrit dans le registre ni dans votre profil.
 - Liens cliquables : sommaire interne, et adresses web ou courriel après confirmation.
 - Déplacement du document à la souris en cliquant hors du texte, comme SumatraPDF.
 - Mode nuit (couleurs inversées).
+- **Annotations** (barre « Annoter », F9) : surligner, souligner, barrer, note, texte, dessin à main levée (stylet compris), ligne, flèche, rectangle, ellipse, tampons (Approuvé, Confidentiel, Reçu le…, texte libre, image), couleur et épaisseur ; sélection, déplacement, modification et suppression ; annuler/rétablir ; panneau des commentaires. Enregistrement incrémental (les signatures existantes restent valides) avec copie de sauvegarde. Annotations standard, lisibles dans Acrobat Reader, Chrome, Firefox.
+- **Signature visuelle** : dessinée au stylet, au doigt ou à la souris, ou importée depuis une image (fond blanc rendu transparent), enregistrée pour réemploi. Sans valeur cryptographique : la signature avec certificat arrive en v1.0.
 - **Organisation des pages** (menu Pages) : réordonner par glisser-déposer, tourner, supprimer, insérer un PDF ou une page blanche, extraire une sélection, annuler/rétablir ; fusionner plusieurs documents ; séparer un document toutes les n pages, par plages ou par signet. Les signets sont conservés, l'original est copié dans un dossier de sauvegarde avant tout remplacement, et un document signé déclenche un avertissement.
 - Tactile et stylet : défilement au doigt, pincer pour zoomer (Surface).
 - Impression (plage de pages, rotation automatique des pages paysage).
@@ -74,7 +77,11 @@ Repris de SumatraPDF autant que possible.
 | Onglet suivant / précédent | Ctrl+Tab / Ctrl+Maj+Tab |
 | Recharger | Ctrl+R |
 | Imprimer | Ctrl+P |
-| Organiser les pages / séparer / fusionner | Ctrl+Maj+O / Ctrl+Maj+S / Ctrl+Maj+M |
+| Enregistrer / enregistrer sous | Ctrl+S / Ctrl+Maj+S |
+| Annuler / rétablir | Ctrl+Z / Ctrl+Y |
+| Outils : sélection, surligner, souligner, note, texte, dessin, rectangle | V, H, U, C, T, D, R (Échap : retour à la sélection) |
+| Signature visuelle | Ctrl+Maj+G |
+| Organiser les pages / séparer / fusionner | Ctrl+Maj+O / Ctrl+Maj+P / Ctrl+Maj+M |
 
 ## Confidentialité
 

@@ -15,6 +15,8 @@ class QMenu;
 class QStackedWidget;
 class QTabWidget;
 class QToolBar;
+class QToolButton;
+class QActionGroup;
 class WelcomeWidget;
 
 class MainWindow : public QMainWindow
@@ -49,6 +51,14 @@ private:
     void updateRecentMenu();
     void updateActions();
     void showAbout();
+    void createAnnotationBar();
+    void updateEditActions();
+    void chooseColor();
+    void placeStamp(const QString &text);
+    void placeSignature();
+    void saveCurrent();
+    void saveCurrentAs();
+    bool confirmDiscard(DocumentTab *tab);
     void organizePages();
     void mergeDocuments();
     void splitDocument();
@@ -57,6 +67,10 @@ private:
     WelcomeWidget *m_welcome;
     QTabWidget *m_tabs;
     QToolBar *m_toolBar;
+    QToolBar *m_annotBar;
+    QToolButton *m_colorButton;
+    QToolButton *m_stampButton;
+    QActionGroup *m_toolGroup;
     QLineEdit *m_pageEdit;
     QLabel *m_pageCountLabel;
     QComboBox *m_zoomCombo;
@@ -87,6 +101,13 @@ private:
     QAction *m_fullScreenAct;
     QAction *m_nextTabAct;
     QAction *m_prevTabAct;
+    QAction *m_saveAct;
+    QAction *m_saveAsAct;
+    QAction *m_undoAct;
+    QAction *m_redoAct;
+    QAction *m_authorAct;
+    QAction *m_annotateAct;
+    QAction *m_signatureAct;
     QAction *m_organizeAct;
     QAction *m_mergeAct;
     QAction *m_splitAct;

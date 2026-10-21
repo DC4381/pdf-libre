@@ -134,20 +134,13 @@ PageOrganizer::PageOrganizer(const QString &path, const QByteArray &password, QW
     : QDialog(parent)
     , m_path(path)
     , m_password(password)
-    , m_renderer(new OrganizerThumbnails(int(kThumbWidth * devicePixelRatioF()), this))
+    , m_renderer(nullptr)
 {
     setWindowTitle(path.isEmpty() ? tr("Fusionner des documents") : tr("Organiser les pages : %1").arg(QFileInfo(path).fileName()));
     setWindowFlags(windowFlags() | Qt::WindowMaximizeButtonHint);
     resize(1000, 720);
     buildUi();
-    connect(m_renderer, &OrganizerThumbnails::ready, this, [this](const QString &key, const QImage &image) {
-        m_thumbnails.insert(key, image);
-        for (int i = 0; i < m_list->count(); ++i) {
-            QListWidgetItem *item = m_list->item(i);
-            if (OrganizerThumbnails::keyOf(m_refById.value(item->data(kIdRole).toInt())) == key)
-                applyThumbnail(item);
-        }
-    });
+    resetRenderer();
     if (!path.isEmpty())
         loadDocument(path, password);
     m_history.clear();
@@ -157,6 +150,22 @@ PageOrganizer::PageOrganizer(const QString &path, const QByteArray &password, QW
 }
 
 PageOrganizer::~PageOrganizer() = default;
+
+// (Re)crée le thread des miniatures. Le détruire ferme les documents qu'il
+// garde ouverts, ce qui est nécessaire avant de remplacer un fichier.
+void PageOrganizer::resetRenderer()
+{
+    delete m_renderer;
+    m_renderer = new OrganizerThumbnails(int(kThumbWidth * devicePixelRatioF()), this);
+    connect(m_renderer, &OrganizerThumbnails::ready, this, [this](const QString &key, const QImage &image) {
+        m_thumbnails.insert(key, image);
+        for (int i = 0; i < m_list->count(); ++i) {
+            QListWidgetItem *item = m_list->item(i);
+            if (OrganizerThumbnails::keyOf(m_refById.value(item->data(kIdRole).toInt())) == key)
+                applyThumbnail(item);
+        }
+    });
+}
 
 void PageOrganizer::buildUi()
 {
@@ -541,6 +550,10 @@ PdfAssembler::Result PageOrganizer::saveTo(const QString &path)
 {
     const QString target = QFileInfo(path).absoluteFilePath();
     if (target == QFileInfo(m_path).absoluteFilePath()) {
+        // Sous Windows, un fichier ouvert ne peut pas être remplacé : on ferme
+        // nos miniatures et on demande à l'appelant d'en faire autant.
+        resetRenderer();
+        emit overwriteRequested(target);
         // Copie de l'original avant remplacement (REL-03).
         const QString backup = Settings::instance().backupFor(m_path);
         if (backup.isEmpty() || !QFile::copy(m_path, backup)) {

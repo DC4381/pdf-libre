@@ -21,8 +21,10 @@ Systèmes : Windows 11 (x64 et ARM64 natif). Windows 10 22H2 x64 non garanti.
 - Sélection et copie du texte, liens cliquables (confirmation pour les liens externes).
 - Tactile et stylet : défilement au doigt, pincer pour zoomer.
 - Impression, rechargement automatique, plein écran, mode nuit, PDF protégés par mot de passe.
+- Annotations : surligner, souligner, barrer, notes, texte, dessin au stylet ou à la souris, formes, flèches, tampons, couleur ; déplacement, modification, suppression, annuler/rétablir, panneau des commentaires.
+- Signature visuelle dessinée ou importée.
 - Organisation des pages : réordonner, tourner, supprimer, insérer, extraire, fusionner, séparer, avec annuler/rétablir et sauvegarde de l'original.
 
 ## Limites de cette version
 
-Pas encore d'annotation, de formulaires, d'OCR ni de signature. Pas de mise à jour automatique. Interface en français.
+Pas encore de formulaires, d'OCR, de signature avec certificat ni d'édition du texte existant. Pas de mise à jour automatique. Interface en français.

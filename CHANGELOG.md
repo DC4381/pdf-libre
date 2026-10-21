@@ -1,5 +1,12 @@
 # Journal des modifications
 
+## 0.4.0
+
+- Annotations : surlignage, soulignement, barré, notes, texte, dessin, formes, flèches, tampons texte et image, couleur, épaisseur, déplacement, modification, suppression, annuler/rétablir, panneau des commentaires.
+- Signature visuelle dessinée ou importée, enregistrée pour réemploi.
+- Enregistrement incrémental avec copie de sauvegarde ; avertissement à la fermeture si des modifications ne sont pas enregistrées.
+- Nom d'auteur des commentaires configurable.
+
 ## 0.3.0
 
 - Organisation des pages : réordonner, tourner, supprimer, insérer (PDF ou page blanche), extraire, annuler/rétablir.
