@@ -47,12 +47,17 @@ jobs:
             qt_host: windows
             qt_arch: win64_msvc2022_64
             qt_dir: msvc2022_64
+            toolset: v143
+            generator: Visual Studio 17 2022
           - arch: arm64
             runner: windows-11-arm
             platform: ARM64
             qt_host: windows_arm64
             qt_arch: win64_msvc2022_arm64
             qt_dir: msvc2022_arm64
+            # Le serveur Windows ARM fournit Visual Studio 2026.
+            toolset: v145
+            generator: Visual Studio 18 2026
     steps:
       - uses: actions/checkout@v4
 
@@ -79,7 +84,7 @@ jobs:
           tar xzf mupdf.tar.gz
           $src = "mupdf-$env:MUPDF_VERSION-source"
           msbuild "$src/platform/win32/mupdf.sln" /t:libmupdf /m `
-            /p:Configuration=Release /p:Platform=${{ matrix.platform }} /p:PlatformToolset=v143 `
+            /p:Configuration=Release /p:Platform=${{ matrix.platform }} /p:PlatformToolset=${{ matrix.toolset }} `
             /p:WindowsTargetPlatformVersion=10.0 /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force mupdf-dist/lib | Out-Null
@@ -122,7 +127,8 @@ jobs:
         shell: pwsh
         run: |
           $qt = "$PWD/qt/$env:QT_VERSION/${{ matrix.qt_dir }}"
-          cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.platform }} `
+          cmake --version
+          cmake -S . -B build -G "${{ matrix.generator }}" -A ${{ matrix.platform }} `
             -DCMAKE_PREFIX_PATH="$qt" -DMUPDF_ROOT="$PWD/mupdf-dist" `
             -DPDFLIBRE_HOMEPAGE="${{ github.server_url }}/${{ github.repository }}"
 
