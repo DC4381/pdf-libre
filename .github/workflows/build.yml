@@ -140,6 +140,9 @@ jobs:
         run: |
           $env:PATH = "$PWD/qt/$env:QT_VERSION/${{ matrix.qt_dir }}/bin;$env:PATH"
           $env:QT_QPA_PLATFORM = 'offscreen'
+          # Sans écran, Qt ne trouve pas seul les polices Windows : sans elles,
+          # les PDF générés par les tests ne contiendraient aucun texte.
+          $env:QT_QPA_FONTDIR = "$env:WINDIR\Fonts"
           $failed = $false
           foreach ($t in 'test_core', 'test_ui') {
             & "build/Release/$t.exe" -o "$t.txt,txt"
