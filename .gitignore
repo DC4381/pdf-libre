@@ -1,0 +1,7 @@
+/build*/
+/dist/
+/out/
+/mupdf-dist/
+/qt/
+*.user
+.vs/

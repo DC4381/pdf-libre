@@ -1,0 +1,232 @@
+# Compilation, tests et paquets Windows (x64 et ARM64 natif).
+# Chaque modification produit un installateur et des versions portables
+# téléchargeables dans l'onglet « Actions » ; une étiquette v* publie une version.
+name: Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  QT_VERSION: 6.10.3
+  MUPDF_VERSION: 1.28.5
+
+jobs:
+  linux:
+    name: Tests (Linux)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dépendances
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build qt6-base-dev libmupdf-dev libharfbuzz-dev libfreetype-dev \
+            libjbig2dec0-dev libopenjp2-7-dev libjpeg-dev libgumbo-dev libmujs-dev
+      - name: Compiler et tester
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+
+  build:
+    name: Compilation ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2022
+            platform: x64
+            qt_host: windows
+            qt_arch: win64_msvc2022_64
+            qt_dir: msvc2022_64
+          - arch: arm64
+            runner: windows-11-arm
+            platform: ARM64
+            qt_host: windows_arm64
+            qt_arch: win64_msvc2022_arm64
+            qt_dir: msvc2022_arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # --- MuPDF (compilé une fois, puis mis en cache) ---------------------
+      - name: Cache MuPDF
+        id: mupdf-cache
+        uses: actions/cache@v4
+        with:
+          path: mupdf-dist
+          key: mupdf-${{ env.MUPDF_VERSION }}-${{ matrix.arch }}-v1
+
+      - name: Compiler MuPDF
+        if: steps.mupdf-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $url = "https://mupdf.com/downloads/archive/mupdf-$env:MUPDF_VERSION-source.tar.gz"
+          Invoke-WebRequest $url -OutFile mupdf.tar.gz
+          tar xzf mupdf.tar.gz
+          $src = "mupdf-$env:MUPDF_VERSION-source"
+          msbuild "$src/platform/win32/mupdf.sln" /t:libmupdf /m `
+            /p:Configuration=Release /p:Platform=${{ matrix.platform }} /p:PlatformToolset=v143 `
+            /p:WindowsTargetPlatformVersion=10.0 /v:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force mupdf-dist/lib | Out-Null
+          Copy-Item -Recurse "$src/include" mupdf-dist/include
+          Copy-Item "$src/platform/win32/${{ matrix.platform }}/Release/libmupdf.lib" mupdf-dist/lib/
+          Copy-Item "$src/COPYING" mupdf-dist/COPYING
+          Get-ChildItem mupdf-dist/lib
+
+      # --- Qt -----------------------------------------------------------------
+      - name: Cache Qt
+        id: qt-cache
+        uses: actions/cache@v4
+        with:
+          path: qt
+          key: qt-${{ env.QT_VERSION }}-${{ matrix.qt_arch }}-v1
+
+      - name: Installer Qt
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m pip install aqtinstall==3.3.0
+          python -m aqt install-qt ${{ matrix.qt_host }} desktop ${{ env.QT_VERSION }} ${{ matrix.qt_arch }} -O qt
+
+      # --- Application --------------------------------------------------------
+      - name: Configurer
+        shell: pwsh
+        run: |
+          $qt = "$PWD/qt/$env:QT_VERSION/${{ matrix.qt_dir }}"
+          cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.platform }} `
+            -DCMAKE_PREFIX_PATH="$qt" -DMUPDF_ROOT="$PWD/mupdf-dist" `
+            -DPDFLIBRE_HOMEPAGE="${{ github.server_url }}/${{ github.repository }}"
+
+      - name: Compiler
+        run: cmake --build build --config Release --parallel
+
+      - name: Tests
+        shell: pwsh
+        run: |
+          $env:PATH = "$PWD/qt/$env:QT_VERSION/${{ matrix.qt_dir }}/bin;$env:PATH"
+          ctest --test-dir build -C Release --output-on-failure
+
+      - name: Préparer le dossier de l'application
+        shell: pwsh
+        run: |
+          $qtbin = "$PWD/qt/$env:QT_VERSION/${{ matrix.qt_dir }}/bin"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/Release/PDFLibre.exe dist/
+          & "$qtbin/windeployqt.exe" --release --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler `
+            --no-quick-import --skip-plugin-types generic,networkinformation,tls,imageformats dist/PDFLibre.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Bibliothèques d'exécution Visual C++ livrées à côté de l'exécutable :
+          # aucun « redistribuable » à installer pour l'utilisateur.
+          $vs = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -property installationPath
+          $crt = Get-ChildItem "$vs/VC/Redist/MSVC/*/${{ matrix.arch }}/Microsoft.VC14*.CRT" -Directory | Select-Object -Last 1
+          Copy-Item "$crt/*.dll" dist/
+          Copy-Item LICENSE, README.md, THIRD-PARTY-NOTICES.md dist/
+          Copy-Item mupdf-dist/COPYING dist/LICENSE-MuPDF.txt
+          Get-ChildItem -Recurse dist | Select-Object FullName, Length
+
+      - name: Essai de démarrage
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/PDFLibre.exe -ArgumentList '--capture', "$PWD/capture.png" -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "L'application ne s'est pas fermée." }
+          if (-not (Test-Path capture.png)) { throw "Aucune capture produite." }
+          # Vérifie l'architecture réelle de l'exécutable (en-tête PE).
+          $bytes = [IO.File]::ReadAllBytes("$PWD/dist/PDFLibre.exe")
+          $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
+          $expected = @{ 'x64' = 0x8664; 'arm64' = 0xAA64 }['${{ matrix.arch }}']
+          if ($machine -ne $expected) { throw ("Architecture inattendue : 0x{0:X}" -f $machine) }
+          "Architecture vérifiée : 0x{0:X}" -f $machine
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PDFLibre-${{ matrix.arch }}
+          path: dist
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: capture-${{ matrix.arch }}
+          path: capture.png
+
+  package:
+    name: Installateur et versions portables
+    needs: build
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: PDFLibre-x64
+          path: dist/x64
+      - uses: actions/download-artifact@v4
+        with:
+          name: PDFLibre-arm64
+          path: dist/arm64
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path CMakeLists.txt -Pattern 'project\(PdfLibre VERSION ([0-9.]+)').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Installateur unique (x64 + ARM64)
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" /DAppVersion=${{ steps.version.outputs.version }} `
+            /DX64Dir="$PWD/dist/x64" /DArm64Dir="$PWD/dist/arm64" /O"$PWD/out" installer/pdflibre.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Versions portables
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          foreach ($arch in 'x64', 'arm64') {
+            Copy-Item installer/portable.ini "dist/$arch/portable.ini"
+            Compress-Archive -Path "dist/$arch/*" -DestinationPath "out/PDFLibre-$v-portable-$arch.zip"
+          }
+          Get-ChildItem out | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          } | Set-Content out/SHA256SUMS.txt
+          Get-Content out/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PDFLibre-paquets
+          path: out
+          if-no-files-found: error
+
+  release:
+    name: Publication
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: PDFLibre-paquets
+          path: out
+      - name: Créer la version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" out/* --repo "${GITHUB_REPOSITORY}" \
+            --title "PDF Libre ${GITHUB_REF_NAME#v}" --generate-notes
