@@ -30,11 +30,11 @@ double darkRatio(const QImage &image)
     return double(dark) / (double(img.width() / 2) * (img.height() / 2));
 }
 
-// Si PDFLIBRE_TEST_CAPTURES est défini, les captures y sont enregistrées
+// Si CARMOPDF_TEST_CAPTURES est défini, les captures y sont enregistrées
 // pour un contrôle visuel.
 void saveCapture(QWidget *widget, const QString &name)
 {
-    const QString dir = qEnvironmentVariable("PDFLIBRE_TEST_CAPTURES");
+    const QString dir = qEnvironmentVariable("CARMOPDF_TEST_CAPTURES");
     if (!dir.isEmpty())
         widget->grab().save(dir + QLatin1Char('/') + name + QStringLiteral(".png"));
 }

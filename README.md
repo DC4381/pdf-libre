@@ -1,4 +1,4 @@
-# PDF Libre
+# CARMO PDF
 
 Créé par David Carmo.
 
@@ -16,9 +16,9 @@ Téléchargez la dernière version dans l'onglet **Releases** du dépôt :
 
 | Fichier | Pour qui |
 | --- | --- |
-| `PDFLibre-x.y.z-installation.exe` | Tout le monde. Un seul fichier pour PC classiques (x64) et PC ARM (Surface, Snapdragon) : la bonne version est choisie automatiquement. Aucun droit administrateur requis. |
-| `PDFLibre-x.y.z-portable-x64.zip` | Version sans installation pour PC classique (clé USB, poste verrouillé). |
-| `PDFLibre-x.y.z-portable-arm64.zip` | Version sans installation pour Surface et PC ARM. |
+| `CarmoPDF-x.y.z-installation.exe` | Tout le monde. Un seul fichier pour PC classiques (x64) et PC ARM (Surface, Snapdragon) : la bonne version est choisie automatiquement. Aucun droit administrateur requis. |
+| `CarmoPDF-x.y.z-portable-x64.zip` | Version sans installation pour PC classique (clé USB, poste verrouillé). |
+| `CarmoPDF-x.y.z-portable-arm64.zip` | Version sans installation pour Surface et PC ARM. |
 | `SHA256SUMS.txt` | Empreintes pour vérifier que les fichiers n'ont pas été modifiés. |
 
 Systèmes pris en charge : Windows 11 (x64 et ARM64 natif) ; Windows 10 22H2
@@ -29,11 +29,11 @@ par un certificat de signature de code, Windows peut afficher « Windows a
 protégé votre ordinateur ». Cliquez sur « Informations complémentaires » puis
 « Exécuter quand même ». Vérifiez au préalable l'empreinte SHA-256.
 
-**Désinstaller** : Paramètres > Applications > PDF Libre > Désinstaller. Vos
+**Désinstaller** : Paramètres > Applications > CARMO PDF > Désinstaller. Vos
 réglages sont conservés, sauf si vous demandez leur suppression.
 
 **Version portable** : décompressez le ZIP où vous voulez et lancez
-`PDFLibre.exe`. Le fichier `portable.ini` présent dans le dossier active le
+`CarmoPDF.exe`. Le fichier `portable.ini` présent dans le dossier active le
 mode portable : rien n'est écrit dans le registre ni dans votre profil.
 
 ## Fonctions de la version 0.1
@@ -76,7 +76,7 @@ Repris de SumatraPDF autant que possible.
 
 ## Confidentialité
 
-PDF Libre ne se connecte à aucun serveur. Aucune télémétrie, aucune
+CARMO PDF ne se connecte à aucun serveur. Aucune télémétrie, aucune
 statistique, aucun envoi de document.
 
 ## Compiler
@@ -114,7 +114,7 @@ cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build
 
 ## Auteur et licence
 
-PDF Libre est créé par **David Carmo**, qui en détient les droits
+CARMO PDF est créé par **David Carmo**, qui en détient les droits
 (Copyright © 2026 David Carmo). Il est mis à disposition sous licence
 GNU Affero General Public License version 3 (voir `LICENSE`). Composants
 tiers : voir `THIRD-PARTY-NOTICES.md`.

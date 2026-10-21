@@ -1,12 +1,12 @@
-PDF Libre est créé par David Carmo. Première version : lecteur PDF gratuit, libre et rapide pour Windows, sans compte, sans publicité, sans envoi de données.
+CARMO PDF est créé par David Carmo. Première version : lecteur PDF gratuit, libre et rapide pour Windows, sans compte, sans publicité, sans envoi de données.
 
 ## Quel fichier télécharger ?
 
 | Fichier | Pour qui |
 | --- | --- |
-| `PDFLibre-0.1.0-installation.exe` | **Recommandé.** PC Windows classiques (x64) et PC ARM (Surface, Snapdragon) : la bonne version est installée automatiquement, sans droits administrateur. |
-| `PDFLibre-0.1.0-portable-arm64.zip` | Sans installation, pour Surface et PC ARM. |
-| `PDFLibre-0.1.0-portable-x64.zip` | Sans installation, pour PC classiques. |
+| `CarmoPDF-0.1.0-installation.exe` | **Recommandé.** PC Windows classiques (x64) et PC ARM (Surface, Snapdragon) : la bonne version est installée automatiquement, sans droits administrateur. |
+| `CarmoPDF-0.1.0-portable-arm64.zip` | Sans installation, pour Surface et PC ARM. |
+| `CarmoPDF-0.1.0-portable-x64.zip` | Sans installation, pour PC classiques. |
 
 Systèmes : Windows 11 (x64 et ARM64 natif). Windows 10 22H2 x64 non garanti.
 

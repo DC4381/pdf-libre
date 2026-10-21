@@ -129,7 +129,7 @@ jobs:
           cmake --version
           cmake -S . -B build -G "${{ matrix.generator }}" -A ${{ matrix.platform }} `
             -DCMAKE_PREFIX_PATH="$qt" -DMUPDF_ROOT="$PWD/mupdf-dist" `
-            -DPDFLIBRE_HOMEPAGE="${{ github.server_url }}/${{ github.repository }}"
+            -DCARMOPDF_HOMEPAGE="${{ github.server_url }}/${{ github.repository }}"
 
       - name: Compiler
         run: cmake --build build --config Release --parallel
@@ -157,9 +157,9 @@ jobs:
         run: |
           $qtbin = "$PWD/qt/$env:QT_VERSION/${{ matrix.qt_dir }}/bin"
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item build/Release/PDFLibre.exe dist/
+          Copy-Item build/Release/CarmoPDF.exe dist/
           & "$qtbin/windeployqt.exe" --release --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler `
-            --no-quick-import --skip-plugin-types generic,networkinformation,tls,imageformats dist/PDFLibre.exe
+            --no-quick-import --skip-plugin-types generic,networkinformation,tls,imageformats dist/CarmoPDF.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # Bibliothèques d'exécution Visual C++ livrées à côté de l'exécutable :
           # aucun « redistribuable » à installer pour l'utilisateur.
@@ -173,11 +173,11 @@ jobs:
       - name: Essai de démarrage
         shell: pwsh
         run: |
-          $p = Start-Process dist/PDFLibre.exe -ArgumentList '--capture', "$PWD/capture.png" -PassThru
+          $p = Start-Process dist/CarmoPDF.exe -ArgumentList '--capture', "$PWD/capture.png" -PassThru
           if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "L'application ne s'est pas fermée." }
           if (-not (Test-Path capture.png)) { throw "Aucune capture produite." }
           # Vérifie l'architecture réelle de l'exécutable (en-tête PE).
-          $bytes = [IO.File]::ReadAllBytes("$PWD/dist/PDFLibre.exe")
+          $bytes = [IO.File]::ReadAllBytes("$PWD/dist/CarmoPDF.exe")
           $pe = [BitConverter]::ToInt32($bytes, 0x3C)
           $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
           $expected = @{ 'x64' = 0x8664; 'arm64' = 0xAA64 }['${{ matrix.arch }}']
@@ -186,7 +186,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PDFLibre-${{ matrix.arch }}
+          name: CarmoPDF-${{ matrix.arch }}
           path: dist
           if-no-files-found: error
 
@@ -204,25 +204,25 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: PDFLibre-x64
+          name: CarmoPDF-x64
           path: dist/x64
       - uses: actions/download-artifact@v4
         with:
-          name: PDFLibre-arm64
+          name: CarmoPDF-arm64
           path: dist/arm64
 
       - name: Version
         id: version
         shell: pwsh
         run: |
-          $v = (Select-String -Path CMakeLists.txt -Pattern 'project\(PdfLibre VERSION ([0-9.]+)').Matches[0].Groups[1].Value
+          $v = (Select-String -Path CMakeLists.txt -Pattern 'project\(CarmoPDF VERSION ([0-9.]+)').Matches[0].Groups[1].Value
           "version=$v" >> $env:GITHUB_OUTPUT
 
       - name: Installateur unique (x64 + ARM64)
         shell: pwsh
         run: |
           & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" /DAppVersion=${{ steps.version.outputs.version }} `
-            /DX64Dir="$PWD/dist/x64" /DArm64Dir="$PWD/dist/arm64" /O"$PWD/out" installer/pdflibre.iss
+            /DX64Dir="$PWD/dist/x64" /DArm64Dir="$PWD/dist/arm64" /O"$PWD/out" installer/carmopdf.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Versions portables
@@ -231,7 +231,7 @@ jobs:
           $v = "${{ steps.version.outputs.version }}"
           foreach ($arch in 'x64', 'arm64') {
             Copy-Item installer/portable.ini "dist/$arch/portable.ini"
-            Compress-Archive -Path "dist/$arch/*" -DestinationPath "out/PDFLibre-$v-portable-$arch.zip"
+            Compress-Archive -Path "dist/$arch/*" -DestinationPath "out/CarmoPDF-$v-portable-$arch.zip"
           }
           Get-ChildItem out | ForEach-Object {
             "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
@@ -240,7 +240,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PDFLibre-paquets
+          name: CarmoPDF-paquets
           path: out
           if-no-files-found: error
 
@@ -257,18 +257,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: PDFLibre-paquets
+          name: CarmoPDF-paquets
           path: out
       - name: Créer la version si elle n'existe pas
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(sed -nE 's/^project\(PdfLibre VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          version=$(sed -nE 's/^project\(CarmoPDF VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
           tag="v${version}"
           if gh release view "$tag" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             echo "La version $tag existe déjà : rien à publier."
             exit 0
           fi
           gh release create "$tag" out/* --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
-            --title "PDF Libre ${version}" --notes-file installer/notes-de-version.md
+            --title "CARMO PDF ${version}" --notes-file installer/notes-de-version.md
           echo "Version $tag publiée."

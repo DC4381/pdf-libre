@@ -17,9 +17,9 @@ extern "C" {
 // Depuis MuPDF 1.24, chaque erreur interceptée doit être déclarée traitée,
 // sinon MuPDF signale une « UNHANDLED EXCEPTION ».
 #if FZ_VERSION_MAJOR > 1 || FZ_VERSION_MINOR >= 24
-#define PDFLIBRE_ERROR_HANDLED(ctx) fz_ignore_error(ctx)
+#define CARMOPDF_ERROR_HANDLED(ctx) fz_ignore_error(ctx)
 #else
-#define PDFLIBRE_ERROR_HANDLED(ctx) ((void)0)
+#define CARMOPDF_ERROR_HANDLED(ctx) ((void)0)
 #endif
 
 namespace {
@@ -33,7 +33,7 @@ int pageNumber(fz_context *ctx, fz_document *doc, fz_location location)
     fz_try(ctx) { page = fz_page_number_from_location(ctx, doc, location); }
     fz_catch(ctx)
     {
-        PDFLIBRE_ERROR_HANDLED(ctx);
+        CARMOPDF_ERROR_HANDLED(ctx);
         page = -1;
     }
     return page;
@@ -48,7 +48,7 @@ int resolveInternalLink(fz_context *ctx, fz_document *doc, const char *uri)
     fz_try(ctx) { location = fz_resolve_link(ctx, doc, uri, nullptr, nullptr); }
     fz_catch(ctx)
     {
-        PDFLIBRE_ERROR_HANDLED(ctx);
+        CARMOPDF_ERROR_HANDLED(ctx);
         return -1;
     }
     return location.page >= 0 ? pageNumber(ctx, doc, location) : -1;
@@ -108,7 +108,7 @@ PdfDocument::OpenStatus PdfDocument::open(const QString &path, const QByteArray 
     fz_catch(m_ctx)
     {
         m_error = QString::fromUtf8(fz_caught_message(m_ctx));
-        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        CARMOPDF_ERROR_HANDLED(m_ctx);
         return OpenStatus::Failed;
     }
 
@@ -118,7 +118,7 @@ PdfDocument::OpenStatus PdfDocument::open(const QString &path, const QByteArray 
     fz_catch(m_ctx)
     {
         m_error = QString::fromUtf8(fz_caught_message(m_ctx));
-        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        CARMOPDF_ERROR_HANDLED(m_ctx);
         fz_drop_document(m_ctx, doc);
         return OpenStatus::Failed;
     }
@@ -139,7 +139,7 @@ PdfDocument::OpenStatus PdfDocument::open(const QString &path, const QByteArray 
     fz_catch(m_ctx)
     {
         m_error = QString::fromUtf8(fz_caught_message(m_ctx));
-        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        CARMOPDF_ERROR_HANDLED(m_ctx);
         fz_drop_document(m_ctx, doc);
         return OpenStatus::Failed;
     }
@@ -170,7 +170,7 @@ QSizeF PdfDocument::pageSize(int index)
     fz_catch(m_ctx)
     {
         // Page illisible : format Lettre par défaut.
-        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        CARMOPDF_ERROR_HANDLED(m_ctx);
         return QSizeF(612, 792);
     }
     const QSizeF size(bounds.x1 - bounds.x0, bounds.y1 - bounds.y0);
@@ -218,7 +218,7 @@ QImage PdfDocument::render(int index, double scale, const QRect &clip)
     {
         fz_drop_pixmap(m_ctx, pix);
         m_error = QString::fromUtf8(fz_caught_message(m_ctx));
-        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        CARMOPDF_ERROR_HANDLED(m_ctx);
         return {};
     }
 
@@ -245,7 +245,7 @@ OutlineList PdfDocument::outline()
     fz_try(m_ctx) { root = fz_load_outline(m_ctx, m_doc); }
     fz_catch(m_ctx)
     {
-        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        CARMOPDF_ERROR_HANDLED(m_ctx);
         return result;
     }
     convertOutline(m_ctx, m_doc, root, result);
@@ -275,7 +275,7 @@ QVector<QRectF> PdfDocument::search(int index, const QString &needle, int maxHit
     fz_always(m_ctx) { fz_drop_page(m_ctx, page); }
     fz_catch(m_ctx)
     {
-        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        CARMOPDF_ERROR_HANDLED(m_ctx);
         return rects;
     }
 
@@ -297,7 +297,7 @@ QString PdfDocument::metadata(const char *key)
     fz_try(m_ctx) { length = fz_lookup_metadata(m_ctx, m_doc, key, buffer, sizeof buffer); }
     fz_catch(m_ctx)
     {
-        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        CARMOPDF_ERROR_HANDLED(m_ctx);
         length = -1;
     }
     return length > 0 ? QString::fromUtf8(buffer).trimmed() : QString();
@@ -335,7 +335,7 @@ const PdfDocument::TextCacheEntry *PdfDocument::textPage(int index)
     fz_always(m_ctx) { fz_drop_page(m_ctx, page); }
     fz_catch(m_ctx)
     {
-        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        CARMOPDF_ERROR_HANDLED(m_ctx);
         return nullptr;
     }
     TextCacheEntry &slot = m_textCache[m_textCacheNext];
@@ -395,7 +395,7 @@ QString PdfDocument::selectionText(int index, QPointF a, QPointF b, SnapMode sna
     fz_try(m_ctx) { copy = fz_copy_selection(m_ctx, text, pa, pb, 1); }
     fz_catch(m_ctx)
     {
-        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        CARMOPDF_ERROR_HANDLED(m_ctx);
         return {};
     }
     QString result = QString::fromUtf8(copy ? copy : "");
@@ -440,7 +440,7 @@ QVector<PdfLink> PdfDocument::links(int index)
     fz_always(m_ctx) { fz_drop_page(m_ctx, page); }
     fz_catch(m_ctx)
     {
-        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        CARMOPDF_ERROR_HANDLED(m_ctx);
         return result;
     }
     for (fz_link *link = links; link; link = link->next) {

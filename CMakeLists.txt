@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 cmake_minimum_required(VERSION 3.21)
 
-project(PdfLibre VERSION 0.1.1 DESCRIPTION "Lecteur PDF libre et rapide" LANGUAGES C CXX)
+project(CarmoPDF VERSION 0.2.0 DESCRIPTION "Lecteur PDF libre et rapide" LANGUAGES C CXX)
 
-set(PDFLIBRE_HOMEPAGE "https://github.com/pdf-libre/pdf-libre" CACHE STRING "Adresse du code source affichée dans l'application")
-option(PDFLIBRE_BUILD_TESTS "Compiler les tests" ON)
+set(CARMOPDF_HOMEPAGE "https://github.com/pdf-libre/pdf-libre" CACHE STRING "Adresse du code source affichée dans l'application")
+option(CARMOPDF_BUILD_TESTS "Compiler les tests" ON)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -53,19 +53,19 @@ else()
 endif()
 
 # --- Noyau (sans interface) ---------------------------------------------------
-add_library(pdflibre_core STATIC
+add_library(carmopdf_core STATIC
     src/core/Types.h
     src/core/PdfDocument.h src/core/PdfDocument.cpp
     src/core/RenderService.h src/core/RenderService.cpp
     src/core/SearchService.h src/core/SearchService.cpp
 )
-target_include_directories(pdflibre_core PUBLIC src)
-target_link_libraries(pdflibre_core PUBLIC Qt6::Core Qt6::Gui PRIVATE mupdf_deps)
+target_include_directories(carmopdf_core PUBLIC src)
+target_link_libraries(carmopdf_core PUBLIC Qt6::Core Qt6::Gui PRIVATE mupdf_deps)
 find_package(Threads REQUIRED)
-target_link_libraries(pdflibre_core PUBLIC Threads::Threads)
+target_link_libraries(carmopdf_core PUBLIC Threads::Threads)
 
 # --- Interface ----------------------------------------------------------------
-add_library(pdflibre_ui STATIC
+add_library(carmopdf_ui STATIC
     src/app/Settings.h src/app/Settings.cpp
     src/ui/DocumentTab.h src/ui/DocumentTab.cpp
     src/ui/DocumentView.h src/ui/DocumentView.cpp
@@ -76,22 +76,22 @@ add_library(pdflibre_ui STATIC
     src/ui/ThumbnailModel.h src/ui/ThumbnailModel.cpp
     src/ui/WelcomeWidget.h src/ui/WelcomeWidget.cpp
 )
-target_link_libraries(pdflibre_ui PUBLIC pdflibre_core Qt6::Widgets Qt6::PrintSupport)
-target_compile_definitions(pdflibre_ui PUBLIC
+target_link_libraries(carmopdf_ui PUBLIC carmopdf_core Qt6::Widgets Qt6::PrintSupport)
+target_compile_definitions(carmopdf_ui PUBLIC
     APP_VERSION="${PROJECT_VERSION}"
-    APP_HOMEPAGE="${PDFLIBRE_HOMEPAGE}"
+    APP_HOMEPAGE="${CARMOPDF_HOMEPAGE}"
 )
 
 # --- Application --------------------------------------------------------------
 set(APP_SOURCES src/main.cpp resources/resources.qrc)
 if(WIN32)
     configure_file(resources/app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/app.rc" @ONLY)
-    list(APPEND APP_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/app.rc" resources/PDFLibre.manifest)
+    list(APPEND APP_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/app.rc" resources/CarmoPDF.manifest)
 endif()
 
-add_executable(PDFLibre WIN32 ${APP_SOURCES})
-target_link_libraries(PDFLibre PRIVATE pdflibre_ui)
-foreach(_target pdflibre_core pdflibre_ui PDFLibre)
+add_executable(CarmoPDF WIN32 ${APP_SOURCES})
+target_link_libraries(CarmoPDF PRIVATE carmopdf_ui)
+foreach(_target carmopdf_core carmopdf_ui CarmoPDF)
     if(MSVC)
         # C4611 : setjmp de MuPDF (fz_try), utilisé selon ses règles.
         target_compile_options(${_target} PRIVATE /W4 /utf-8 /wd4611)
@@ -100,18 +100,18 @@ foreach(_target pdflibre_core pdflibre_ui PDFLibre)
     endif()
 endforeach()
 
-install(TARGETS PDFLibre RUNTIME DESTINATION .)
+install(TARGETS CarmoPDF RUNTIME DESTINATION .)
 install(FILES LICENSE README.md THIRD-PARTY-NOTICES.md DESTINATION .)
 
 # --- Tests --------------------------------------------------------------------
-if(PDFLIBRE_BUILD_TESTS)
+if(CARMOPDF_BUILD_TESTS)
     find_package(Qt6 COMPONENTS Test)
     if(Qt6Test_FOUND)
         enable_testing()
         add_executable(test_core tests/test_core.cpp)
-        target_link_libraries(test_core PRIVATE pdflibre_core Qt6::Test)
+        target_link_libraries(test_core PRIVATE carmopdf_core Qt6::Test)
         add_executable(test_ui tests/test_ui.cpp)
-        target_link_libraries(test_ui PRIVATE pdflibre_ui Qt6::Test)
+        target_link_libraries(test_ui PRIVATE carmopdf_ui Qt6::Test)
         add_test(NAME test_core COMMAND test_core)
         add_test(NAME test_ui COMMAND test_ui)
         set_tests_properties(test_core test_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

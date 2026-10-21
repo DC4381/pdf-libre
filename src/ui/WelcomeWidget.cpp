@@ -24,7 +24,7 @@ WelcomeWidget::WelcomeWidget(QWidget *parent)
     outer->addLayout(column, 3);
     outer->addStretch(1);
 
-    auto *title = new QLabel(tr("PDF Libre"), this);
+    auto *title = new QLabel(tr("CARMO PDF"), this);
     QFont titleFont = title->font();
     titleFont.setPointSizeF(titleFont.pointSizeF() * 2.0);
     titleFont.setBold(true);

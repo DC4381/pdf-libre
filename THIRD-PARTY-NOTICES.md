@@ -1,6 +1,6 @@
 # Composants tiers
 
-PDF Libre est distribué sous licence GNU AGPL version 3. Il intègre les
+CARMO PDF est distribué sous licence GNU AGPL version 3. Il intègre les
 composants suivants.
 
 | Composant | Rôle | Licence | Source |

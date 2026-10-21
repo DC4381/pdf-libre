@@ -1,5 +1,9 @@
 # Journal des modifications
 
+## 0.2.0
+
+- Le logiciel s'appelle CARMO PDF (exécutable `CarmoPDF.exe`, installateur et versions portables renommés).
+
 ## 0.1.1
 
 - Mention de l'auteur et propriétaire, David Carmo, dans le programme, l'installateur et la documentation.

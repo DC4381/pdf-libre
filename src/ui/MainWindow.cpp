@@ -43,7 +43,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_welcome(new WelcomeWidget(m_stack))
     , m_tabs(new QTabWidget(m_stack))
 {
-    setWindowTitle(QStringLiteral("PDF Libre"));
+    setWindowTitle(QStringLiteral("CARMO PDF"));
     setAcceptDrops(true);
 
     m_tabs->setDocumentMode(true);
@@ -155,7 +155,7 @@ void MainWindow::createActions()
         if (m_tabs->count() > 1)
             m_tabs->setCurrentIndex((m_tabs->currentIndex() + m_tabs->count() - 1) % m_tabs->count());
     });
-    m_aboutAct = make(tr("À &propos de PDF Libre"), QKeySequence(), [this] { showAbout(); });
+    m_aboutAct = make(tr("À &propos de CARMO PDF"), QKeySequence(), [this] { showAbout(); });
 }
 
 void MainWindow::createMenus()
@@ -335,7 +335,7 @@ void MainWindow::openFile(const QString &path)
     });
     connect(tab, &DocumentTab::titleChanged, this, [this, tab] {
         if (tab == currentTab())
-            setWindowTitle(tab->documentTitle() + QStringLiteral(" - PDF Libre"));
+            setWindowTitle(tab->documentTitle() + QStringLiteral(" - CARMO PDF"));
     });
     connect(tab, &DocumentTab::pageChanged, this, [this, tab](int page, int count) {
         if (tab == currentTab())
@@ -365,7 +365,7 @@ void MainWindow::closeTab(int index)
     if (m_tabs->count() == 0) {
         m_welcome->setRecentFiles(Settings::instance().recentFiles());
         m_stack->setCurrentWidget(m_welcome);
-        setWindowTitle(QStringLiteral("PDF Libre"));
+        setWindowTitle(QStringLiteral("CARMO PDF"));
     }
     updateActions();
 }
@@ -374,7 +374,7 @@ void MainWindow::onCurrentTabChanged()
 {
     DocumentTab *tab = currentTab();
     if (tab) {
-        setWindowTitle(tab->documentTitle() + QStringLiteral(" - PDF Libre"));
+        setWindowTitle(tab->documentTitle() + QStringLiteral(" - CARMO PDF"));
         updatePageControls(tab->view()->currentPage(), tab->pageCount());
         updateZoomControls(tab->view()->zoom(), tab->view()->zoomMode());
         tab->setSidebarVisible(m_sidebarAct->isChecked());
@@ -506,8 +506,8 @@ void MainWindow::updateActions()
 void MainWindow::showAbout()
 {
     QMessageBox::about(
-        this, tr("À propos de PDF Libre"),
-        tr("<h3>PDF Libre %1</h3>"
+        this, tr("À propos de CARMO PDF"),
+        tr("<h3>CARMO PDF %1</h3>"
            "<p>Lecteur PDF gratuit, rapide et sans publicité. Vos documents restent sur votre ordinateur : "
            "aucune donnée n'est transmise.</p>"
            "<p>Créé par David Carmo. Copyright © 2026 David Carmo.<br>"

@@ -1,6 +1,6 @@
 # Contribuer
 
-Merci de votre intérêt pour PDF Libre.
+Merci de votre intérêt pour CARMO PDF.
 
 ## Principes
 

@@ -14,8 +14,8 @@
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
-    QApplication::setApplicationName(QStringLiteral("PDF Libre"));
-    QApplication::setOrganizationName(QStringLiteral("PDF Libre"));
+    QApplication::setApplicationName(QStringLiteral("CARMO PDF"));
+    QApplication::setOrganizationName(QStringLiteral("David Carmo"));
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/app.png")));
 
