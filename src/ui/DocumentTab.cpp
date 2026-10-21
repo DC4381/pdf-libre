@@ -279,6 +279,7 @@ void DocumentTab::onRendered(const RenderRequest &request, const QImage &image)
 
 void DocumentTab::onOutline(const OutlineList &outline)
 {
+    m_outlineData = outline;
     m_outline->clear();
     addOutlineItems(nullptr, outline);
     const bool hasOutline = m_outline->topLevelItemCount() > 0;

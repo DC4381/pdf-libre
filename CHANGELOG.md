@@ -1,5 +1,11 @@
 # Journal des modifications
 
+## 0.3.0
+
+- Organisation des pages : réordonner, tourner, supprimer, insérer (PDF ou page blanche), extraire, annuler/rétablir.
+- Fusion de documents et séparation (toutes les n pages, plages, signets).
+- Conservation des signets et des métadonnées, copie de sauvegarde de l'original, avertissement sur les documents signés.
+
 ## 0.2.0
 
 - Le logiciel s'appelle CARMO PDF (exécutable `CarmoPDF.exe`, installateur et versions portables renommés).

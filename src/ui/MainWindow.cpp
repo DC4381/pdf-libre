@@ -4,6 +4,8 @@
 
 #include "DocumentTab.h"
 #include "Icons.h"
+#include "PageOrganizer.h"
+#include "SplitDialog.h"
 #include "Printing.h"
 #include "WelcomeWidget.h"
 #include "app/Settings.h"
@@ -155,6 +157,10 @@ void MainWindow::createActions()
         if (m_tabs->count() > 1)
             m_tabs->setCurrentIndex((m_tabs->currentIndex() + m_tabs->count() - 1) % m_tabs->count());
     });
+    m_organizeAct = make(tr("&Organiser les pages…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O), [this] { organizePages(); });
+    m_organizeAct->setIcon(Icons::make(Icons::Kind::Pages));
+    m_mergeAct = make(tr("&Fusionner des documents…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M), [this] { mergeDocuments(); });
+    m_splitAct = make(tr("&Séparer le document…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S), [this] { splitDocument(); });
     m_aboutAct = make(tr("À &propos de CARMO PDF"), QKeySequence(), [this] { showAbout(); });
 }
 
@@ -202,6 +208,12 @@ void MainWindow::createMenus()
     go->addSeparator();
     go->addAction(m_nextTabAct);
     go->addAction(m_prevTabAct);
+
+    QMenu *pages = menuBar()->addMenu(tr("&Pages"));
+    pages->addAction(m_organizeAct);
+    pages->addAction(m_splitAct);
+    pages->addSeparator();
+    pages->addAction(m_mergeAct);
 
     QMenu *help = menuBar()->addMenu(tr("&Aide"));
     help->addAction(m_aboutAct);
@@ -270,6 +282,7 @@ void MainWindow::createToolBar()
 
     m_toolBar->addSeparator();
     m_toolBar->addAction(m_findAct);
+    m_toolBar->addAction(m_organizeAct);
 }
 
 DocumentTab *MainWindow::currentTab() const
@@ -491,7 +504,7 @@ void MainWindow::updateActions()
     const bool hasDoc = currentTab() != nullptr;
     for (QAction *action : {m_printAct, m_closeTabAct, m_reloadAct, m_findAct, m_findNextAct, m_findPrevAct, m_firstAct,
                             m_prevAct, m_nextAct, m_lastAct, m_goToAct, m_zoomInAct, m_zoomOutAct, m_fitWidthAct,
-                            m_fitPageAct, m_actualSizeAct, m_selectPageAct})
+                            m_fitPageAct, m_actualSizeAct, m_selectPageAct, m_organizeAct, m_splitAct})
         action->setEnabled(hasDoc);
     m_copyAct->setEnabled(hasDoc && currentTab()->view()->hasSelection());
     m_pageEdit->setEnabled(hasDoc);
@@ -501,6 +514,40 @@ void MainWindow::updateActions()
         m_pageCountLabel->clear();
         m_zoomCombo->setEditText(QString());
     }
+}
+
+void MainWindow::organizePages()
+{
+    DocumentTab *tab = currentTab();
+    if (!tab || !tab->isLoaded())
+        return;
+    PageOrganizer organizer(tab->path(), tab->password(), this);
+    connect(&organizer, &PageOrganizer::documentSaved, this, [this, tab](const QString &path) {
+        if (QFileInfo(path).absoluteFilePath() == tab->path())
+            tab->reload();
+        else
+            openFile(path);
+    });
+    organizer.exec();
+}
+
+void MainWindow::mergeDocuments()
+{
+    PageOrganizer organizer(QString(), {}, this);
+    DocumentTab *tab = currentTab();
+    if (tab && tab->isLoaded())
+        organizer.loadDocument(tab->path(), tab->password());
+    connect(&organizer, &PageOrganizer::documentSaved, this, [this](const QString &path) { openFile(path); });
+    organizer.exec();
+}
+
+void MainWindow::splitDocument()
+{
+    DocumentTab *tab = currentTab();
+    if (!tab || !tab->isLoaded())
+        return;
+    SplitDialog dialog(tab->path(), tab->password(), tab->pageCount(), tab->outline(), this);
+    dialog.exec();
 }
 
 void MainWindow::showAbout()

@@ -49,6 +49,9 @@ private:
     void updateRecentMenu();
     void updateActions();
     void showAbout();
+    void organizePages();
+    void mergeDocuments();
+    void splitDocument();
 
     QStackedWidget *m_stack;
     WelcomeWidget *m_welcome;
@@ -84,6 +87,9 @@ private:
     QAction *m_fullScreenAct;
     QAction *m_nextTabAct;
     QAction *m_prevTabAct;
+    QAction *m_organizeAct;
+    QAction *m_mergeAct;
+    QAction *m_splitAct;
     QAction *m_aboutAct;
 
     bool m_wasMaximized = false;

@@ -7,12 +7,15 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QStandardPaths>
 
 #include <algorithm>
 
 namespace {
 constexpr int kMaxRecent = 15;
 constexpr int kMaxRemembered = 300;
+constexpr int kBackupDays = 30;
+constexpr qint64 kBackupBudget = 2ll << 30;
 }
 
 Settings &Settings::instance()
@@ -112,4 +115,38 @@ bool Settings::sidebarVisible() const
 void Settings::setSidebarVisible(bool visible)
 {
     m_settings->setValue(QStringLiteral("ui/sidebar"), visible);
+}
+
+QString Settings::backupDirectory() const
+{
+    const QString custom = m_settings->value(QStringLiteral("backups/directory")).toString();
+    if (!custom.isEmpty())
+        return custom;
+    if (m_portable)
+        return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("sauvegardes"));
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/sauvegardes");
+}
+
+QString Settings::backupFor(const QString &original)
+{
+    QDir dir(backupDirectory());
+    if (!dir.exists() && !dir.mkpath(QStringLiteral(".")))
+        return {};
+
+    // Nettoyage : sauvegardes de plus de 30 jours, puis au-delà de 2 Go.
+    const QDateTime limit = QDateTime::currentDateTime().addDays(-kBackupDays);
+    QFileInfoList files = dir.entryInfoList({QStringLiteral("*.pdf")}, QDir::Files, QDir::Time | QDir::Reversed);
+    qint64 total = 0;
+    for (const QFileInfo &info : std::as_const(files))
+        total += info.size();
+    for (const QFileInfo &info : std::as_const(files)) {
+        if (info.lastModified() < limit || total > kBackupBudget) {
+            total -= info.size();
+            QFile::remove(info.absoluteFilePath());
+        }
+    }
+
+    const QFileInfo source(original);
+    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH.mm.ss"));
+    return dir.filePath(source.completeBaseName() + QStringLiteral(" (") + stamp + QStringLiteral(").pdf"));
 }

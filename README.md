@@ -6,8 +6,8 @@ Lecteur PDF gratuit, libre et rapide pour Windows, inspiré de SumatraPDF.
 Aucun compte, aucune publicité, aucun abonnement : vos documents restent sur
 votre ordinateur.
 
-Version actuelle : **0.1** (lecture). La feuille de route complète
-(annotations, organisation des pages, formulaires, OCR, signatures) figure
+Version actuelle : **0.3** (lecture et organisation des pages). La feuille de
+route complète (annotations, formulaires, OCR, signatures, édition) figure
 dans le cahier des charges du projet.
 
 ## Installer
@@ -36,7 +36,7 @@ réglages sont conservés, sauf si vous demandez leur suppression.
 `CarmoPDF.exe`. Le fichier `portable.ini` présent dans le dossier active le
 mode portable : rien n'est écrit dans le registre ni dans votre profil.
 
-## Fonctions de la version 0.1
+## Fonctions
 
 - Ouverture rapide, affichage progressif, documents volumineux (rendu des seules pages visibles).
 - Onglets, glisser-déposer, documents récents, reprise à la dernière page lue.
@@ -47,6 +47,7 @@ mode portable : rien n'est écrit dans le registre ni dans votre profil.
 - Liens cliquables : sommaire interne, et adresses web ou courriel après confirmation.
 - Déplacement du document à la souris en cliquant hors du texte, comme SumatraPDF.
 - Mode nuit (couleurs inversées).
+- **Organisation des pages** (menu Pages) : réordonner par glisser-déposer, tourner, supprimer, insérer un PDF ou une page blanche, extraire une sélection, annuler/rétablir ; fusionner plusieurs documents ; séparer un document toutes les n pages, par plages ou par signet. Les signets sont conservés, l'original est copié dans un dossier de sauvegarde avant tout remplacement, et un document signé déclenche un avertissement.
 - Tactile et stylet : défilement au doigt, pincer pour zoomer (Surface).
 - Impression (plage de pages, rotation automatique des pages paysage).
 - Rechargement automatique quand le fichier est modifié par un autre programme.
@@ -73,6 +74,7 @@ Repris de SumatraPDF autant que possible.
 | Onglet suivant / précédent | Ctrl+Tab / Ctrl+Maj+Tab |
 | Recharger | Ctrl+R |
 | Imprimer | Ctrl+P |
+| Organiser les pages / séparer / fusionner | Ctrl+Maj+O / Ctrl+Maj+S / Ctrl+Maj+M |
 
 ## Confidentialité
 

@@ -2,10 +2,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Tests de l'interface : chargement, navigation, zoom fort (rendu par zones),
 // miniatures. Exécutés sans écran (QT_QPA_PLATFORM=offscreen).
+#include "core/PdfDocument.h"
 #include "ui/DocumentTab.h"
 #include "ui/DocumentView.h"
+#include "ui/PageOrganizer.h"
+#include "ui/SplitDialog.h"
+
+#include "app/Settings.h"
 
 #include <QApplication>
+#include <QDir>
+#include <QFile>
 #include <QClipboard>
 #include <QListView>
 #include <QPageSize>
@@ -184,6 +191,104 @@ private slots:
         saveCapture(&tab, QStringLiteral("mode-nuit"));
         view->setInvertColors(false);
         QVERIFY(darkRatio(view->viewport()->grab().toImage()) < 0.5);
+    }
+
+    void organizer()
+    {
+        // Copie de travail : l'organiseur remplace le fichier.
+        const QString work = m_dir.filePath(QStringLiteral("organiser.pdf"));
+        QVERIFY(QFile::copy(m_path, work));
+        PageOrganizer organizer(work, {});
+        organizer.show();
+        QCOMPARE(organizer.pages().size(), 60);
+        QVERIFY(!organizer.isModified());
+
+        organizer.selectPages({0});
+        organizer.rotateSelection(90);
+        QCOMPARE(organizer.pages()[0].rotation, 90);
+        organizer.selectPages({1, 2});
+        QCOMPARE(organizer.selectedPositions(), QVector<int>({1, 2}));
+        organizer.deleteSelection();
+        QCOMPARE(organizer.pages().size(), 58);
+        QCOMPARE(organizer.pages()[1].page, 3); // l'ancienne page 4 suit la page 1
+        organizer.selectPages({1});
+        organizer.moveSelection(-1);
+        QCOMPARE(organizer.pages()[0].page, 3);
+        QCOMPARE(organizer.pages()[1].page, 0);
+        organizer.insertBlankPage(1);
+        QVERIFY(organizer.pages()[1].isBlank());
+        QCOMPARE(organizer.pages().size(), 59);
+
+        // Annuler deux fois (page blanche, déplacement), rétablir une fois.
+        organizer.undo();
+        organizer.undo();
+        QCOMPARE(organizer.pages().size(), 58);
+        QCOMPARE(organizer.pages()[0].page, 0);
+        organizer.redo();
+        QCOMPARE(organizer.pages()[0].page, 3);
+        QVERIFY(organizer.isModified());
+
+        // Miniatures : au moins une arrive en arrière-plan.
+        QTRY_VERIFY_WITH_TIMEOUT(darkRatio(organizer.findChild<PageList *>()->viewport()->grab().toImage()) > 0.001, 5000);
+        QTest::qWait(300);
+        saveCapture(&organizer, QStringLiteral("organiseur"));
+
+        // Enregistrement par-dessus l'original, avec sauvegarde.
+        const auto result = organizer.saveTo(work);
+        QVERIFY2(result.ok, qPrintable(result.error));
+        QCOMPARE(result.pageCount, 58);
+        PdfDocument doc;
+        QCOMPARE(doc.open(work), PdfDocument::OpenStatus::Ok);
+        QCOMPARE(doc.pageCount(), 58);
+        QVERIFY(doc.selectionText(0, QPointF(0, 0), QPointF(2000, 2000)).contains(QStringLiteral("Page 4 ligne 0")));
+        QVERIFY(doc.pageSize(1).width() > doc.pageSize(1).height()); // page 1 tournée, devenue 2e
+        QVERIFY(!organizer.isModified()); // repart du fichier enregistré
+        const QDir backups(Settings::instance().backupDirectory());
+        QVERIFY(!backups.entryList({QStringLiteral("organiser (*.pdf")}, QDir::Files).isEmpty());
+    }
+
+    void splitPlans()
+    {
+        QString error;
+        auto parts = SplitDialog::plan(SplitDialog::Mode::EveryN, 7, 3, {}, {}, &error);
+        QCOMPARE(parts.size(), 3);
+        QCOMPARE(parts[2], QVector<int>({6}));
+
+        parts = SplitDialog::plan(SplitDialog::Mode::Ranges, 10, 1, QStringLiteral("1-3, 5, 8-10"), {}, &error);
+        QCOMPARE(parts.size(), 3);
+        QCOMPARE(parts[0], QVector<int>({0, 1, 2}));
+        QCOMPARE(parts[1], QVector<int>({4}));
+        QVERIFY(SplitDialog::plan(SplitDialog::Mode::Ranges, 10, 1, QStringLiteral("1-12"), {}, &error).isEmpty());
+        QVERIFY(!error.isEmpty());
+        QVERIFY(SplitDialog::plan(SplitDialog::Mode::Ranges, 10, 1, QStringLiteral("abc"), {}, &error).isEmpty());
+
+        OutlineList outline;
+        OutlineItem a;
+        a.title = QStringLiteral("A");
+        a.page = 2;
+        OutlineItem b;
+        b.title = QStringLiteral("B");
+        b.page = 5;
+        outline.push_back(a);
+        outline.push_back(b);
+        parts = SplitDialog::plan(SplitDialog::Mode::Bookmarks, 8, 1, {}, outline, &error);
+        QCOMPARE(parts.size(), 3); // pages avant A, A, B
+        QCOMPARE(parts[0], QVector<int>({0, 1}));
+        QCOMPARE(parts[1], QVector<int>({2, 3, 4}));
+        QCOMPARE(parts[2], QVector<int>({5, 6, 7}));
+
+        // Écriture réelle.
+        error.clear();
+        const QString dir = m_dir.filePath(QStringLiteral("parties"));
+        QVERIFY(QDir().mkpath(dir));
+        const QStringList files = SplitDialog::split(m_path, {}, SplitDialog::plan(SplitDialog::Mode::EveryN, 60, 25, {}, {}),
+                                                     dir, QStringLiteral("ui"), &error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(files.size(), 3);
+        QVERIFY(files[0].endsWith(QStringLiteral("ui - partie 01.pdf")));
+        PdfDocument last;
+        QCOMPARE(last.open(files[2]), PdfDocument::OpenStatus::Ok);
+        QCOMPARE(last.pageCount(), 10);
     }
 
     void search()

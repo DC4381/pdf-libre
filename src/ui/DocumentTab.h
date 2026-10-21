@@ -41,6 +41,7 @@ public:
     QByteArray password() const { return m_password; }
     bool isLoaded() const { return m_loaded; }
     int pageCount() const { return m_pageCount; }
+    OutlineList outline() const { return m_outlineData; }
     DocumentView *view() const { return m_view; }
 
     void setSidebarVisible(bool visible);
@@ -87,6 +88,7 @@ private:
     int m_pageCount = 0;
     int m_generation = 0;
     DocumentState m_restore;
+    OutlineList m_outlineData;
 
     std::unique_ptr<RenderService> m_render;
     std::unique_ptr<PdfDocument> m_textDocument;

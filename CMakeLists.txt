@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 cmake_minimum_required(VERSION 3.21)
 
-project(CarmoPDF VERSION 0.2.0 DESCRIPTION "Lecteur PDF libre et rapide" LANGUAGES C CXX)
+project(CarmoPDF VERSION 0.3.0 DESCRIPTION "Lecteur PDF libre et rapide" LANGUAGES C CXX)
 
 set(CARMOPDF_HOMEPAGE "https://github.com/pdf-libre/pdf-libre" CACHE STRING "Adresse du code source affichée dans l'application")
 option(CARMOPDF_BUILD_TESTS "Compiler les tests" ON)
@@ -55,6 +55,7 @@ endif()
 # --- Noyau (sans interface) ---------------------------------------------------
 add_library(carmopdf_core STATIC
     src/core/Types.h
+    src/core/PdfAssembler.h src/core/PdfAssembler.cpp
     src/core/PdfDocument.h src/core/PdfDocument.cpp
     src/core/RenderService.h src/core/RenderService.cpp
     src/core/SearchService.h src/core/SearchService.cpp
@@ -71,6 +72,8 @@ add_library(carmopdf_ui STATIC
     src/ui/DocumentView.h src/ui/DocumentView.cpp
     src/ui/Icons.h src/ui/Icons.cpp
     src/ui/MainWindow.h src/ui/MainWindow.cpp
+    src/ui/PageOrganizer.h src/ui/PageOrganizer.cpp
+    src/ui/SplitDialog.h src/ui/SplitDialog.cpp
     src/ui/Printing.h src/ui/Printing.cpp
     src/ui/SearchBar.h src/ui/SearchBar.cpp
     src/ui/ThumbnailModel.h src/ui/ThumbnailModel.cpp
@@ -109,11 +112,14 @@ if(CARMOPDF_BUILD_TESTS)
     if(Qt6Test_FOUND)
         enable_testing()
         add_executable(test_core tests/test_core.cpp)
+        add_executable(test_assembler tests/test_assembler.cpp)
+        target_link_libraries(test_assembler PRIVATE carmopdf_core Qt6::Test)
+        add_test(NAME test_assembler COMMAND test_assembler)
         target_link_libraries(test_core PRIVATE carmopdf_core Qt6::Test)
         add_executable(test_ui tests/test_ui.cpp)
         target_link_libraries(test_ui PRIVATE carmopdf_ui Qt6::Test)
         add_test(NAME test_core COMMAND test_core)
         add_test(NAME test_ui COMMAND test_ui)
-        set_tests_properties(test_core test_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        set_tests_properties(test_core test_assembler test_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
 endif()

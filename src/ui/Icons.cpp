@@ -76,6 +76,14 @@ public:
             painter->drawRoundedRect(QRectF(3, 4, 18, 16), 2, 2);
             painter->drawLine(QPointF(9, 4), QPointF(9, 20));
             break;
+        case Icons::Kind::Pages:
+            painter->drawRoundedRect(QRectF(3, 4, 8, 11), 1.5, 1.5);
+            painter->drawRoundedRect(QRectF(13, 4, 8, 11), 1.5, 1.5);
+            painter->setPen(QPen(accent, 1.8, Qt::SolidLine, Qt::RoundCap));
+            painter->drawLine(QPointF(5, 20), QPointF(19, 20));
+            painter->drawLine(QPointF(16, 17), QPointF(19, 20));
+            painter->drawLine(QPointF(16, 23), QPointF(19, 20));
+            break;
         case Icons::Kind::ZoomIn:
         case Icons::Kind::ZoomOut:
             painter->drawEllipse(QPointF(10, 10), 6, 6);

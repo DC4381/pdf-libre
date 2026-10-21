@@ -38,6 +38,11 @@ public:
     DocumentState documentState(const QString &path) const;
     void setDocumentState(const QString &path, const DocumentState &state);
 
+    // Dossier des copies de sauvegarde des originaux, et chemin d'une
+    // nouvelle sauvegarde pour `original` (vide si le dossier est inaccessible).
+    QString backupDirectory() const;
+    QString backupFor(const QString &original);
+
     bool sidebarVisible() const;
     void setSidebarVisible(bool visible);
 
