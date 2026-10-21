@@ -5,6 +5,7 @@
 #include "ui/DocumentView.h"
 
 #include <QApplication>
+#include <QClipboard>
 #include <QListView>
 #include <QPageSize>
 #include <QPainter>
@@ -112,6 +113,76 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(darkRatio(list->viewport()->grab().toImage()) > 0.002, 5000);
         QTest::qWait(300);
         saveCapture(&tab, QStringLiteral("miniatures"));
+    }
+
+    void selectionWithMouse()
+    {
+        DocumentTab tab(m_path);
+        tab.setSidebarVisible(false);
+        tab.resize(1000, 800);
+        tab.show();
+        QSignalSpy loaded(&tab, &DocumentTab::loaded);
+        QVERIFY(loaded.wait(5000));
+        DocumentView *view = tab.view();
+        view->setZoomMode(DocumentView::ZoomMode::FitWidth);
+        QTRY_VERIFY_WITH_TIMEOUT(darkRatio(view->viewport()->grab().toImage()) > 0.01, 5000);
+
+        // Glisser de la 1re à la 3e ligne de la page 1.
+        const QRectF page = view->pageViewportRect(0);
+        const double scale = page.width() / 595.0;
+        const QPoint from = (page.topLeft() + QPointF(80 * scale, 50 * scale)).toPoint();
+        const QPoint to = (page.topLeft() + QPointF(400 * scale, 150 * scale)).toPoint();
+        QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, from);
+        QTest::mouseMove(view->viewport(), from + QPoint(30, 10));
+        QTest::mouseMove(view->viewport(), to);
+        QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, to);
+        QVERIFY(view->hasSelection());
+        const QString text = view->selectedText();
+        QVERIFY2(text.contains(QStringLiteral("ligne 0 MMMMMMMM")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("ligne 2")), qPrintable(text));
+        saveCapture(&tab, QStringLiteral("selection"));
+
+        view->copySelection();
+        QCOMPARE(QApplication::clipboard()->text(), text);
+
+        // Double-clic : un mot.
+        const QPoint word = (page.topLeft() + QPointF(60 * scale, 60 * scale)).toPoint();
+        QTest::mouseDClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, word);
+        QCOMPARE(view->selectedText(), QStringLiteral("Page"));
+
+        // Sélection de toute la page, puis Échap.
+        view->selectAllOnPage(5);
+        QVERIFY(view->selectedText().contains(QStringLiteral("Page 6 ligne 13")));
+        QTest::keyClick(view, Qt::Key_Escape);
+        QVERIFY(!view->hasSelection());
+
+        // Hors du texte : clic puis glisser = déplacement du document.
+        QTest::qWait(QApplication::doubleClickInterval() + 50); // sinon ce clic compte comme un triple-clic
+        const int before = view->verticalScrollBar()->value();
+        const QPoint blank = (page.topLeft() + QPointF(300 * scale, 12 * scale)).toPoint(); // marge haute, sans texte
+        QTest::mousePress(view->viewport(), Qt::LeftButton, Qt::NoModifier, blank);
+        QTest::mouseMove(view->viewport(), blank - QPoint(0, 120));
+        QTest::mouseRelease(view->viewport(), Qt::LeftButton, Qt::NoModifier, blank - QPoint(0, 120));
+        QCOMPARE(view->verticalScrollBar()->value(), before + 120);
+        QVERIFY(!view->hasSelection());
+    }
+
+    void invertColors()
+    {
+        DocumentTab tab(m_path);
+        tab.setSidebarVisible(false);
+        tab.resize(600, 500);
+        tab.show();
+        QSignalSpy loaded(&tab, &DocumentTab::loaded);
+        QVERIFY(loaded.wait(5000));
+        DocumentView *view = tab.view();
+        QTRY_VERIFY_WITH_TIMEOUT(darkRatio(view->viewport()->grab().toImage()) > 0.01, 5000);
+        view->setInvertColors(true);
+        // Fond de page noir : la proportion de pixels sombres devient majoritaire.
+        QVERIFY(darkRatio(view->viewport()->grab().toImage()) > 0.5);
+        saveCapture(&tab, QStringLiteral("mode-nuit"));
+        view->setInvertColors(false);
+        QVERIFY(darkRatio(view->viewport()->grab().toImage()) < 0.5);
     }
 
     void search()

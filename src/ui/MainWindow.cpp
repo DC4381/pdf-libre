@@ -102,6 +102,18 @@ void MainWindow::createActions()
     m_reloadAct = make(tr("&Recharger"), QKeySequence(Qt::CTRL | Qt::Key_R), onTab([](DocumentTab *tab) { tab->reload(); }));
     m_quitAct = make(tr("&Quitter"), QKeySequence(Qt::CTRL | Qt::Key_Q), [this] { close(); });
 
+    m_copyAct = make(tr("&Copier"), QKeySequence::Copy, onTab([](DocumentTab *tab) { tab->view()->copySelection(); }));
+    m_selectPageAct = make(tr("Sélectionner toute la &page"), QKeySequence::SelectAll,
+                           onTab([](DocumentTab *tab) { tab->view()->selectAllOnPage(tab->view()->currentPage()); }));
+    m_invertAct = make(tr("&Inverser les couleurs (mode nuit)"), QKeySequence(Qt::CTRL | Qt::Key_I), [this] {
+        Settings::instance().raw().setValue(QStringLiteral("ui/invert"), m_invertAct->isChecked());
+        for (int i = 0; i < m_tabs->count(); ++i) {
+            if (auto *tab = qobject_cast<DocumentTab *>(m_tabs->widget(i)))
+                tab->view()->setInvertColors(m_invertAct->isChecked());
+        }
+    });
+    m_invertAct->setCheckable(true);
+    m_invertAct->setChecked(Settings::instance().raw().value(QStringLiteral("ui/invert"), false).toBool());
     m_findAct = make(tr("&Rechercher…"), QKeySequence::Find, onTab([](DocumentTab *tab) { tab->showSearch(); }));
     m_findAct->setIcon(Icons::make(Icons::Kind::Find));
     m_findNextAct = make(tr("Occurrence &suivante"), QKeySequence(Qt::Key_F3), onTab([](DocumentTab *tab) { tab->findNext(); }));
@@ -159,6 +171,9 @@ void MainWindow::createMenus()
     file->addAction(m_quitAct);
 
     QMenu *edit = menuBar()->addMenu(tr("&Édition"));
+    edit->addAction(m_copyAct);
+    edit->addAction(m_selectPageAct);
+    edit->addSeparator();
     edit->addAction(m_findAct);
     edit->addAction(m_findNextAct);
     edit->addAction(m_findPrevAct);
@@ -170,6 +185,8 @@ void MainWindow::createMenus()
     view->addSeparator();
     view->addAction(m_zoomInAct);
     view->addAction(m_zoomOutAct);
+    view->addSeparator();
+    view->addAction(m_invertAct);
     view->addSeparator();
     view->addAction(m_sidebarAct);
     view->addAction(m_fullScreenAct);
@@ -293,6 +310,11 @@ void MainWindow::openFile(const QString &path)
 
     auto *tab = new DocumentTab(absolute, m_tabs);
     tab->setSidebarVisible(m_sidebarAct->isChecked());
+    tab->view()->setInvertColors(m_invertAct->isChecked());
+    connect(tab->view(), &DocumentView::selectionChanged, this, [this, tab](bool has) {
+        if (tab == currentTab())
+            m_copyAct->setEnabled(has);
+    });
     const int index = m_tabs->addTab(tab, info.fileName());
     m_tabs->setTabToolTip(index, QDir::toNativeSeparators(absolute));
     m_tabs->setCurrentIndex(index);
@@ -357,6 +379,7 @@ void MainWindow::onCurrentTabChanged()
         tab->setSidebarVisible(m_sidebarAct->isChecked());
     }
     updateActions();
+    m_copyAct->setEnabled(tab && tab->view()->hasSelection());
 }
 
 void MainWindow::updatePageControls(int page, int pageCount)
@@ -467,8 +490,9 @@ void MainWindow::updateActions()
     const bool hasDoc = currentTab() != nullptr;
     for (QAction *action : {m_printAct, m_closeTabAct, m_reloadAct, m_findAct, m_findNextAct, m_findPrevAct, m_firstAct,
                             m_prevAct, m_nextAct, m_lastAct, m_goToAct, m_zoomInAct, m_zoomOutAct, m_fitWidthAct,
-                            m_fitPageAct, m_actualSizeAct})
+                            m_fitPageAct, m_actualSizeAct, m_selectPageAct})
         action->setEnabled(hasDoc);
+    m_copyAct->setEnabled(hasDoc && currentTab()->view()->hasSelection());
     m_pageEdit->setEnabled(hasDoc);
     m_zoomCombo->setEnabled(hasDoc);
     if (!hasDoc) {

@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "DocumentView.h"
 
+#include <QApplication>
+#include <QClipboard>
+#include <QContextMenuEvent>
+#include <QDateTime>
 #include <QGestureEvent>
 #include <QKeyEvent>
+#include <QMenu>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPinchGesture>
 #include <QScrollBar>
@@ -56,6 +62,9 @@ void DocumentView::reset(int pageCount)
     m_full.clear();
     m_clip.clear();
     m_cacheBytes = 0;
+    m_links.clear();
+    m_pressedLink = nullptr;
+    clearSelection();
     clearSearch();
     m_currentPage = 0;
     relayout(PagePoint{0, QPointF(0, 0)}, QPointF(0, 0));
@@ -447,10 +456,23 @@ void DocumentView::drawPage(QPainter &painter, int page, const QRectF &rect)
         painter.drawImage(target, clip->image);
     }
 
+    if (m_invert) {
+        // Inversion des couleurs sans copie d'image : différence avec du blanc.
+        painter.setCompositionMode(QPainter::CompositionMode_Difference);
+        painter.fillRect(rect, Qt::white);
+        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    }
+
     const double ppp = pixelsPerPoint();
     const auto toView = [&](const QRectF &r) {
         return QRectF(rect.left() + r.left() * ppp, rect.top() + r.top() * ppp, r.width() * ppp, r.height() * ppp);
     };
+    const auto selection = m_selectionRects.constFind(page);
+    if (selection != m_selectionRects.cend()) {
+        const QColor color = palette().color(QPalette::Highlight);
+        for (const QRectF &r : *selection)
+            painter.fillRect(toView(r), QColor(color.red(), color.green(), color.blue(), 90));
+    }
     const auto hits = m_hits.constFind(page);
     if (hits != m_hits.cend()) {
         for (const QRectF &r : *hits)
@@ -467,7 +489,7 @@ void DocumentView::drawPage(QPainter &painter, int page, const QRectF &rect)
 void DocumentView::paintEvent(QPaintEvent *)
 {
     QPainter painter(viewport());
-    painter.fillRect(viewport()->rect(), palette().color(QPalette::Mid));
+    painter.fillRect(viewport()->rect(), m_invert ? QColor(40, 40, 40) : palette().color(QPalette::Mid));
     if (m_tops.isEmpty())
         return;
     painter.setRenderHint(QPainter::SmoothPixmapTransform);
@@ -563,7 +585,18 @@ void DocumentView::keyPressEvent(QKeyEvent *event)
     case Qt::Key_Minus:
         zoomOut();
         break;
+    case Qt::Key_Escape:
+        if (!hasSelection()) {
+            QAbstractScrollArea::keyPressEvent(event);
+            return;
+        }
+        clearSelection();
+        break;
     default:
+        if (event->matches(QKeySequence::Copy) && hasSelection()) {
+            copySelection();
+            break;
+        }
         QAbstractScrollArea::keyPressEvent(event);
         return;
     }
@@ -591,4 +624,262 @@ void DocumentView::handlePinch(QPinchGesture *gesture)
         const QPointF center = viewport()->mapFromGlobal(gesture->centerPoint());
         setZoom(m_pinchStartZoom * gesture->totalScaleFactor(), center);
     }
+}
+
+// --- Texte, sélection, liens, déplacement ------------------------------------
+
+void DocumentView::setTextDocument(PdfDocument *document)
+{
+    m_text = document;
+    m_links.clear();
+}
+
+QRectF DocumentView::pageViewportRect(int page) const
+{
+    if (page < 0 || page >= m_tops.size())
+        return {};
+    return pageRect(page);
+}
+
+void DocumentView::setInvertColors(bool invert)
+{
+    if (m_invert == invert)
+        return;
+    m_invert = invert;
+    viewport()->update();
+}
+
+void DocumentView::clearSelection()
+{
+    const bool had = hasSelection();
+    m_selectionRects.clear();
+    m_selStart = {};
+    m_selEnd = {};
+    m_selecting = false;
+    if (had) {
+        emit selectionChanged(false);
+        viewport()->update();
+    }
+}
+
+// Recalcule les zones sélectionnées entre m_selStart et m_selEnd, qui peuvent
+// se trouver sur des pages différentes.
+void DocumentView::updateSelection()
+{
+    m_selectionRects.clear();
+    if (m_text && m_selStart.page >= 0 && m_selEnd.page >= 0) {
+        PagePoint first = m_selStart;
+        PagePoint last = m_selEnd;
+        if (last.page < first.page)
+            std::swap(first, last);
+        for (int page = first.page; page <= last.page; ++page) {
+            const QSizeF size = m_sizes[page];
+            const QPointF a = page == first.page ? first.point : QPointF(0, 0);
+            const QPointF b = page == last.page ? last.point : QPointF(size.width(), size.height());
+            const QVector<QRectF> rects = m_text->selectionRects(page, a, b, m_selMode);
+            if (!rects.isEmpty())
+                m_selectionRects.insert(page, rects);
+        }
+    }
+    emit selectionChanged(hasSelection());
+    viewport()->update();
+}
+
+QString DocumentView::selectedText() const
+{
+    if (!m_text || m_selectionRects.isEmpty())
+        return {};
+    PagePoint first = m_selStart;
+    PagePoint last = m_selEnd;
+    if (last.page < first.page)
+        std::swap(first, last);
+    QStringList parts;
+    for (int page = first.page; page <= last.page; ++page) {
+        if (!m_selectionRects.contains(page))
+            continue;
+        const QSizeF size = m_sizes[page];
+        const QPointF a = page == first.page ? first.point : QPointF(0, 0);
+        const QPointF b = page == last.page ? last.point : QPointF(size.width(), size.height());
+        const QString text = m_text->selectionText(page, a, b, m_selMode).trimmed();
+        if (!text.isEmpty())
+            parts.append(text);
+    }
+    return parts.join(QStringLiteral("\n\n"));
+}
+
+void DocumentView::copySelection()
+{
+    const QString text = selectedText();
+    if (!text.isEmpty())
+        QApplication::clipboard()->setText(text);
+}
+
+void DocumentView::selectAllOnPage(int page)
+{
+    if (!m_text || page < 0 || page >= m_sizes.size())
+        return;
+    const QSizeF size = m_sizes[page];
+    m_selMode = PdfDocument::SnapMode::Chars;
+    m_selStart = PagePoint{page, QPointF(0, 0)};
+    m_selEnd = PagePoint{page, QPointF(size.width(), size.height())};
+    updateSelection();
+}
+
+const PdfLink *DocumentView::linkAt(const PagePoint &point)
+{
+    if (!m_text || point.page < 0)
+        return nullptr;
+    auto it = m_links.find(point.page);
+    if (it == m_links.end())
+        it = m_links.insert(point.page, m_text->links(point.page));
+    for (const PdfLink &link : *it) {
+        if (link.rect.contains(point.point))
+            return &link;
+    }
+    return nullptr;
+}
+
+void DocumentView::updateCursor(QPointF pos)
+{
+    if (m_panning) {
+        viewport()->setCursor(Qt::ClosedHandCursor);
+        return;
+    }
+    const PagePoint point = pagePointAt(pos);
+    if (!pageRect(point.page).contains(pos)) {
+        viewport()->setCursor(Qt::ArrowCursor);
+    } else if (linkAt(point)) {
+        viewport()->setCursor(Qt::PointingHandCursor);
+    } else if (m_text && m_text->hasTextAt(point.page, point.point)) {
+        viewport()->setCursor(Qt::IBeamCursor);
+    } else {
+        viewport()->setCursor(Qt::OpenHandCursor);
+    }
+}
+
+void DocumentView::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() != Qt::LeftButton || m_tops.isEmpty()) {
+        QAbstractScrollArea::mousePressEvent(event);
+        return;
+    }
+    setFocus(Qt::MouseFocusReason);
+    m_pressPos = event->pos();
+    const PagePoint point = pagePointAt(event->position());
+    const bool onPage = pageRect(point.page).contains(event->position());
+    m_pressedLink = onPage ? linkAt(point) : nullptr;
+
+    // Un clic simple après un double-clic rapproché sélectionne la ligne.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const bool triple = now - m_lastDoubleClick < QApplication::doubleClickInterval();
+    if (triple) {
+        m_lastDoubleClick = 0;
+        m_selMode = PdfDocument::SnapMode::Lines;
+        m_selStart = m_selEnd = point;
+        updateSelection();
+        event->accept();
+        return;
+    }
+
+    if (onPage && m_text && !m_pressedLink && m_text->hasTextAt(point.page, point.point)) {
+        clearSelection();
+        m_selMode = PdfDocument::SnapMode::Chars;
+        m_selStart = m_selEnd = point;
+        m_selecting = true;
+    } else if (!m_pressedLink) {
+        // Hors du texte : on déplace le document, comme SumatraPDF.
+        clearSelection();
+        m_panning = true;
+        m_panLast = event->pos();
+        viewport()->setCursor(Qt::ClosedHandCursor);
+    }
+    event->accept();
+}
+
+void DocumentView::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_panning) {
+        const QPoint delta = event->pos() - m_panLast;
+        m_panLast = event->pos();
+        horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
+        verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
+        event->accept();
+        return;
+    }
+    if (m_selecting) {
+        // Défilement automatique quand la souris sort de la fenêtre.
+        const int h = viewport()->height();
+        if (event->pos().y() < 0)
+            verticalScrollBar()->setValue(verticalScrollBar()->value() + std::max(-40, event->pos().y() / 2));
+        else if (event->pos().y() > h)
+            verticalScrollBar()->setValue(verticalScrollBar()->value() + std::min(40, (event->pos().y() - h) / 2));
+        m_selEnd = pagePointAt(event->position());
+        updateSelection();
+        event->accept();
+        return;
+    }
+    updateCursor(event->position());
+    QAbstractScrollArea::mouseMoveEvent(event);
+}
+
+void DocumentView::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (event->button() != Qt::LeftButton) {
+        QAbstractScrollArea::mouseReleaseEvent(event);
+        return;
+    }
+    const bool moved = (event->pos() - m_pressPos).manhattanLength() > QApplication::startDragDistance();
+    if (m_pressedLink && !moved) {
+        const PdfLink link = *m_pressedLink;
+        m_pressedLink = nullptr;
+        if (link.page >= 0)
+            goToPage(link.page);
+        else
+            emit externalLinkActivated(link.uri);
+    }
+    m_pressedLink = nullptr;
+    if (m_selecting) {
+        m_selecting = false;
+        if (!moved && m_selMode == PdfDocument::SnapMode::Chars)
+            clearSelection();
+    }
+    m_panning = false;
+    updateCursor(event->position());
+    event->accept();
+}
+
+void DocumentView::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    if (event->button() != Qt::LeftButton || !m_text) {
+        QAbstractScrollArea::mouseDoubleClickEvent(event);
+        return;
+    }
+    const PagePoint point = pagePointAt(event->position());
+    if (!pageRect(point.page).contains(event->position()))
+        return;
+    m_lastDoubleClick = QDateTime::currentMSecsSinceEpoch();
+    m_selMode = PdfDocument::SnapMode::Words;
+    m_selStart = m_selEnd = point;
+    m_selecting = false;
+    updateSelection();
+    event->accept();
+}
+
+void DocumentView::contextMenuEvent(QContextMenuEvent *event)
+{
+    QMenu menu(this);
+    QAction *copy = menu.addAction(tr("Copier"), this, &DocumentView::copySelection);
+    copy->setShortcut(QKeySequence::Copy);
+    copy->setEnabled(hasSelection());
+    const PagePoint point = pagePointAt(event->pos());
+    if (point.page >= 0) {
+        menu.addAction(tr("Sélectionner toute la page"), this, [this, point] { selectAllOnPage(point.page); });
+        if (const PdfLink *link = linkAt(point)) {
+            if (link->page < 0) {
+                const QString uri = link->uri;
+                menu.addAction(tr("Copier l'adresse du lien"), this, [uri] { QApplication::clipboard()->setText(uri); });
+            }
+        }
+    }
+    menu.exec(event->globalPos());
 }

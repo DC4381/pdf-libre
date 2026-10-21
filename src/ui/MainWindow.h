@@ -63,6 +63,9 @@ private:
     QAction *m_closeTabAct;
     QAction *m_reloadAct;
     QAction *m_quitAct;
+    QAction *m_copyAct;
+    QAction *m_selectPageAct;
+    QAction *m_invertAct;
     QAction *m_findAct;
     QAction *m_findNextAct;
     QAction *m_findPrevAct;

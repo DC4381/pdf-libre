@@ -38,6 +38,21 @@ int pageNumber(fz_context *ctx, fz_document *doc, fz_location location)
     return page;
 }
 
+// Page visée par un lien interne, ou -1. Isolé dans sa propre fonction pour
+// que fz_try ne partage aucune variable avec la boucle appelante.
+int resolveInternalLink(fz_context *ctx, fz_document *doc, const char *uri)
+{
+    fz_location location = {-1, -1};
+    fz_var(location);
+    fz_try(ctx) { location = fz_resolve_link(ctx, doc, uri, nullptr, nullptr); }
+    fz_catch(ctx)
+    {
+        PDFLIBRE_ERROR_HANDLED(ctx);
+        return -1;
+    }
+    return location.page >= 0 ? pageNumber(ctx, doc, location) : -1;
+}
+
 void convertOutline(fz_context *ctx, fz_document *doc, fz_outline *node, OutlineList &out)
 {
     for (; node; node = node->next) {
@@ -70,6 +85,7 @@ PdfDocument::PdfDocument()
 PdfDocument::~PdfDocument()
 {
     if (m_ctx) {
+        dropTextPages();
         fz_drop_document(m_ctx, m_doc);
         fz_drop_context(m_ctx);
     }
@@ -79,6 +95,7 @@ PdfDocument::OpenStatus PdfDocument::open(const QString &path, const QByteArray 
 {
     if (!m_ctx)
         return OpenStatus::Failed;
+    dropTextPages();
     fz_drop_document(m_ctx, m_doc);
     m_doc = nullptr;
     m_pageCount = 0;
@@ -283,4 +300,163 @@ QString PdfDocument::metadata(const char *key)
         length = -1;
     }
     return length > 0 ? QString::fromUtf8(buffer).trimmed() : QString();
+}
+
+void PdfDocument::dropTextPages()
+{
+    for (TextCacheEntry &entry : m_textCache) {
+        fz_drop_stext_page(m_ctx, static_cast<fz_stext_page *>(entry.text));
+        entry = TextCacheEntry{};
+    }
+}
+
+// Texte structuré d'une page, conservé pour les 4 dernières pages consultées :
+// l'extraction coûte quelques millisecondes et sert à chaque mouvement de souris.
+const PdfDocument::TextCacheEntry *PdfDocument::textPage(int index)
+{
+    if (!m_doc || index < 0 || index >= m_pageCount)
+        return nullptr;
+    for (const TextCacheEntry &entry : m_textCache) {
+        if (entry.page == index)
+            return &entry;
+    }
+    fz_page *page = nullptr;
+    fz_stext_page *text = nullptr;
+    fz_rect bounds = fz_empty_rect;
+    fz_var(page);
+    fz_var(text);
+    fz_try(m_ctx)
+    {
+        page = fz_load_page(m_ctx, m_doc, index);
+        bounds = fz_bound_page(m_ctx, page);
+        text = fz_new_stext_page_from_page(m_ctx, page, nullptr);
+    }
+    fz_always(m_ctx) { fz_drop_page(m_ctx, page); }
+    fz_catch(m_ctx)
+    {
+        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        return nullptr;
+    }
+    TextCacheEntry &slot = m_textCache[m_textCacheNext];
+    m_textCacheNext = (m_textCacheNext + 1) % 4;
+    fz_drop_stext_page(m_ctx, static_cast<fz_stext_page *>(slot.text));
+    slot = TextCacheEntry{index, text, bounds.x0, bounds.y0};
+    return &slot;
+}
+
+namespace {
+int snapOf(PdfDocument::SnapMode mode)
+{
+    switch (mode) {
+    case PdfDocument::SnapMode::Words:
+        return FZ_SELECT_WORDS;
+    case PdfDocument::SnapMode::Lines:
+        return FZ_SELECT_LINES;
+    default:
+        return FZ_SELECT_CHARS;
+    }
+}
+} // namespace
+
+QVector<QRectF> PdfDocument::selectionRects(int index, QPointF a, QPointF b, SnapMode snap)
+{
+    QVector<QRectF> rects;
+    const TextCacheEntry *entry = textPage(index);
+    if (!entry)
+        return rects;
+    auto *text = static_cast<fz_stext_page *>(entry->text);
+    fz_point pa = fz_make_point(float(a.x()) + entry->originX, float(a.y()) + entry->originY);
+    fz_point pb = fz_make_point(float(b.x()) + entry->originX, float(b.y()) + entry->originY);
+    if (snap != SnapMode::Chars)
+        fz_snap_selection(m_ctx, text, &pa, &pb, snapOf(snap));
+    std::vector<fz_quad> quads(2048);
+    const int count = fz_highlight_selection(m_ctx, text, pa, pb, quads.data(), int(quads.size()));
+    rects.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        const fz_rect r = fz_rect_from_quad(quads[size_t(i)]);
+        rects.append(QRectF(r.x0 - entry->originX, r.y0 - entry->originY, r.x1 - r.x0, r.y1 - r.y0));
+    }
+    return rects;
+}
+
+QString PdfDocument::selectionText(int index, QPointF a, QPointF b, SnapMode snap)
+{
+    const TextCacheEntry *entry = textPage(index);
+    if (!entry)
+        return {};
+    auto *text = static_cast<fz_stext_page *>(entry->text);
+    fz_point pa = fz_make_point(float(a.x()) + entry->originX, float(a.y()) + entry->originY);
+    fz_point pb = fz_make_point(float(b.x()) + entry->originX, float(b.y()) + entry->originY);
+    if (snap != SnapMode::Chars)
+        fz_snap_selection(m_ctx, text, &pa, &pb, snapOf(snap));
+    char *copy = nullptr;
+    fz_var(copy);
+    fz_try(m_ctx) { copy = fz_copy_selection(m_ctx, text, pa, pb, 1); }
+    fz_catch(m_ctx)
+    {
+        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        return {};
+    }
+    QString result = QString::fromUtf8(copy ? copy : "");
+    fz_free(m_ctx, copy);
+    return result;
+}
+
+bool PdfDocument::hasTextAt(int index, QPointF point)
+{
+    const TextCacheEntry *entry = textPage(index);
+    if (!entry)
+        return false;
+    auto *text = static_cast<fz_stext_page *>(entry->text);
+    const fz_point p = fz_make_point(float(point.x()) + entry->originX, float(point.y()) + entry->originY);
+    for (fz_stext_block *block = text->first_block; block; block = block->next) {
+        if (block->type != FZ_STEXT_BLOCK_TEXT || !fz_is_point_inside_rect(p, block->bbox))
+            continue;
+        for (fz_stext_line *line = block->u.t.first_line; line; line = line->next) {
+            if (fz_is_point_inside_rect(p, line->bbox))
+                return true;
+        }
+    }
+    return false;
+}
+
+QVector<PdfLink> PdfDocument::links(int index)
+{
+    QVector<PdfLink> result;
+    if (!m_doc || index < 0 || index >= m_pageCount)
+        return result;
+    fz_page *page = nullptr;
+    fz_link *links = nullptr;
+    fz_rect bounds = fz_empty_rect;
+    fz_var(page);
+    fz_var(links);
+    fz_try(m_ctx)
+    {
+        page = fz_load_page(m_ctx, m_doc, index);
+        bounds = fz_bound_page(m_ctx, page);
+        links = fz_load_links(m_ctx, page);
+    }
+    fz_always(m_ctx) { fz_drop_page(m_ctx, page); }
+    fz_catch(m_ctx)
+    {
+        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        return result;
+    }
+    for (fz_link *link = links; link; link = link->next) {
+        if (!link->uri)
+            continue;
+        PdfLink item;
+        item.rect = QRectF(link->rect.x0 - bounds.x0, link->rect.y0 - bounds.y0, link->rect.x1 - link->rect.x0,
+                           link->rect.y1 - link->rect.y0);
+        if (fz_is_external_link(m_ctx, link->uri)) {
+            item.uri = QString::fromUtf8(link->uri);
+        } else {
+            item.page = resolveInternalLink(m_ctx, m_doc, link->uri);
+            if (item.page < 0)
+                continue;
+        }
+        result.append(item);
+    }
+    fz_drop_link(m_ctx, links);
+    return result;
 }

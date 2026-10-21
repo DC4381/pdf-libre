@@ -9,6 +9,7 @@ Première version : lecteur PDF.
 - Recherche plein texte en arrière-plan avec surlignage.
 - Miniatures et signets.
 - Zoom de 10 % à 6 400 %, rendu par zones aux forts zooms.
+- Sélection et copie du texte, liens cliquables, déplacement à la souris, mode nuit.
 - Tactile et stylet (pincer pour zoomer, défilement au doigt).
 - Impression.
 - Rechargement automatique du fichier modifié.

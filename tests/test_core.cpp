@@ -97,6 +97,30 @@ private slots:
         QVERIFY(hit.top() > 70 && hit.bottom() < 130 && hit.width() > 50);
     }
 
+    void selectionAndCopy()
+    {
+        PdfDocument doc;
+        QCOMPARE(doc.open(m_sample), PdfDocument::OpenStatus::Ok);
+        const QRectF word = doc.search(0, QStringLiteral("compromis")).first();
+        QVERIFY(doc.hasTextAt(0, word.center()));
+        QVERIFY(!doc.hasTextAt(0, QPointF(5, 5)));
+        // Sélection du mot par double-clic (extension au mot).
+        const QString text = doc.selectionText(0, word.center(), word.center(), PdfDocument::SnapMode::Words);
+        QCOMPARE(text.trimmed(), QStringLiteral("compromis"));
+        // Sélection de toute la ligne : les accents doivent être conservés.
+        const QString line = doc.selectionText(1, QPointF(0, 150), QPointF(600, 250), PdfDocument::SnapMode::Lines);
+        QVERIFY2(line.contains(QStringLiteral("Acquéreur Dupont")), qPrintable(line));
+        QVERIFY(!doc.selectionRects(0, word.topLeft(), word.bottomRight()).isEmpty());
+        QVERIFY(doc.selectionRects(0, QPointF(1, 1), QPointF(2, 2)).isEmpty());
+    }
+
+    void links()
+    {
+        PdfDocument doc;
+        QCOMPARE(doc.open(m_sample), PdfDocument::OpenStatus::Ok);
+        QVERIFY(doc.links(0).isEmpty()); // le document de test n'a pas de lien
+    }
+
     void searchService()
     {
         SearchService service(m_sample, {});

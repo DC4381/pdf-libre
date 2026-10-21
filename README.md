@@ -41,6 +41,10 @@ mode portable : rien n'est écrit dans le registre ni dans votre profil.
 - Recherche plein texte en arrière-plan, occurrences surlignées.
 - Miniatures, signets du document, aller à la page.
 - Zoom de 10 % à 6 400 % net (rendu par zones aux forts zooms), ajuster à la largeur ou à la page.
+- Sélection du texte à la souris (double-clic : mot, triple-clic : ligne), copie dans le presse-papiers, sélection d'une page entière.
+- Liens cliquables : sommaire interne, et adresses web ou courriel après confirmation.
+- Déplacement du document à la souris en cliquant hors du texte, comme SumatraPDF.
+- Mode nuit (couleurs inversées).
 - Tactile et stylet : défilement au doigt, pincer pour zoomer (Surface).
 - Impression (plage de pages, rotation automatique des pages paysage).
 - Rechargement automatique quand le fichier est modifié par un autre programme.
@@ -53,6 +57,8 @@ Repris de SumatraPDF autant que possible.
 | Action | Touches |
 | --- | --- |
 | Ouvrir | Ctrl+O |
+| Copier la sélection / sélectionner la page | Ctrl+C / Ctrl+A |
+| Mode nuit | Ctrl+I |
 | Rechercher / suivant / précédent | Ctrl+F / F3 / Maj+F3 |
 | Page suivante / précédente | N / P, Page suivante / Page précédente |
 | Défiler | J / K, flèches, Espace |

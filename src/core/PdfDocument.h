@@ -13,6 +13,14 @@
 struct fz_context;
 struct fz_document;
 
+// Lien présent sur une page : vers une autre page ou vers une adresse externe.
+struct PdfLink
+{
+    QRectF rect;   // en points, origine en haut à gauche de la page
+    int page = -1; // cible interne, ou -1
+    QString uri;   // adresse externe (http, mailto…) si page < 0
+};
+
 // Enveloppe RAII d'un document MuPDF.
 //
 // Une instance n'est utilisée que depuis un seul thread : chaque service
@@ -43,7 +51,29 @@ public:
     QVector<QRectF> search(int index, const QString &needle, int maxHits = 512);
     QString metadata(const char *key);
 
+    enum class SnapMode { Chars, Words, Lines };
+    // Zones du texte compris entre les points `a` et `b` (en points).
+    // Avec `snap`, les points sont d'abord étendus au mot ou à la ligne.
+    QVector<QRectF> selectionRects(int index, QPointF a, QPointF b, SnapMode snap = SnapMode::Chars);
+    QString selectionText(int index, QPointF a, QPointF b, SnapMode snap = SnapMode::Chars);
+    // Vrai si du texte se trouve sous le point (pour le curseur).
+    bool hasTextAt(int index, QPointF point);
+    QVector<PdfLink> links(int index);
+
 private:
+    struct TextCacheEntry
+    {
+        int page = -1;
+        void *text = nullptr; // fz_stext_page (type anonyme chez MuPDF)
+        float originX = 0;
+        float originY = 0;
+    };
+    const TextCacheEntry *textPage(int index);
+    void dropTextPages();
+
+    TextCacheEntry m_textCache[4];
+    int m_textCacheNext = 0;
+
     fz_context *m_ctx = nullptr;
     fz_document *m_doc = nullptr;
     int m_pageCount = 0;

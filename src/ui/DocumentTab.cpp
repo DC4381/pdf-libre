@@ -8,8 +8,11 @@
 #include "core/RenderService.h"
 #include "core/SearchService.h"
 
+#include <QDesktopServices>
 #include <QFileInfo>
 #include <QHeaderView>
+#include <QMessageBox>
+#include <QUrl>
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QListView>
@@ -88,6 +91,20 @@ DocumentTab::DocumentTab(const QString &path, QWidget *parent)
         emit pageChanged(page, m_pageCount);
     });
     connect(m_view, &DocumentView::zoomChanged, this, &DocumentTab::zoomChanged);
+    connect(m_view, &DocumentView::externalLinkActivated, this, [this](const QString &uri) {
+        // Un PDF reçu peut pointer n'importe où : confirmation avant d'ouvrir.
+        const QUrl url(uri);
+        const QString scheme = url.scheme().toLower();
+        if (scheme != QLatin1String("http") && scheme != QLatin1String("https") && scheme != QLatin1String("mailto")) {
+            QMessageBox::information(this, tr("Lien"), tr("Ce type de lien n'est pas pris en charge :\n%1").arg(uri));
+            return;
+        }
+        const auto answer = QMessageBox::question(this, tr("Ouvrir le lien"),
+                                                  tr("Ce document veut ouvrir :\n\n%1\n\nContinuer ?").arg(uri),
+                                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer == QMessageBox::Yes)
+            QDesktopServices::openUrl(url);
+    });
     connect(m_thumbModel, &ThumbnailModel::thumbnailNeeded, this, [this](int page) {
         m_thumbQueue.prepend(page);
         m_pushTimer.start();
@@ -226,6 +243,13 @@ void DocumentTab::onPageSizes(int first, const QVector<QSizeF> &sizes)
     m_view->setPageSizes(first, sizes);
     if (first == 0 && !m_loaded) {
         m_loaded = true;
+        // Instance réservée au texte (sélection, liens), sur ce thread.
+        m_view->setTextDocument(nullptr);
+        m_textDocument = std::make_unique<PdfDocument>();
+        if (m_textDocument->open(m_path, m_password) == PdfDocument::OpenStatus::Ok)
+            m_view->setTextDocument(m_textDocument.get());
+        else
+            m_textDocument.reset();
         if (m_restore.valid) {
             const auto mode = static_cast<DocumentView::ZoomMode>(m_restore.zoomMode);
             if (mode == DocumentView::ZoomMode::Custom)
@@ -433,5 +457,7 @@ void DocumentTab::reload()
     }
     m_hits.clear();
     m_currentHit = {};
+    m_view->setTextDocument(nullptr);
+    m_textDocument.reset();
     openDocument();
 }

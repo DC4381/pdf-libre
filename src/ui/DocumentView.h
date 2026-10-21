@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 
+#include "core/PdfDocument.h"
 #include "core/Types.h"
 
 #include <QAbstractScrollArea>
@@ -10,6 +11,7 @@
 #include <QTimer>
 #include <QVector>
 
+class QMenu;
 class QPinchGesture;
 
 // Affichage continu des pages, façon SumatraPDF : défilement vertical,
@@ -42,6 +44,19 @@ public:
     void zoomIn();
     void zoomOut();
 
+    // Document ouvert sur le thread de l'interface, réservé au texte
+    // (sélection, liens). Peut rester nul : la vue reste alors sans sélection.
+    void setTextDocument(PdfDocument *document);
+    bool hasSelection() const { return !m_selectionRects.isEmpty(); }
+    QString selectedText() const;
+    void copySelection();
+    void selectAllOnPage(int page);
+    void clearSelection();
+    bool invertColors() const { return m_invert; }
+    void setInvertColors(bool invert);
+    // Rectangle de la page dans la fenêtre, en pixels logiques.
+    QRectF pageViewportRect(int page) const;
+
     void setSearchHits(int page, const QVector<QRectF> &hits);
     void setCurrentHit(int page, const QRectF &rect);
     void clearSearch();
@@ -53,6 +68,8 @@ signals:
     void currentPageChanged(int page);
     void zoomChanged(double zoom, DocumentView::ZoomMode mode);
     void requestsChanged(const QVector<RenderRequest> &requests);
+    void selectionChanged(bool hasSelection);
+    void externalLinkActivated(const QString &uri);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -61,6 +78,11 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     bool viewportEvent(QEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
     struct PagePoint
@@ -89,6 +111,9 @@ private:
     void evictCache();
     void handlePinch(QPinchGesture *gesture);
     void drawPage(QPainter &painter, int page, const QRectF &rect);
+    void updateSelection();
+    const PdfLink *linkAt(const PagePoint &point);
+    void updateCursor(QPointF pos);
 
     QVector<QSizeF> m_sizes;  // en points
     QVector<double> m_tops;   // haut de chaque page, en pixels logiques
@@ -110,4 +135,19 @@ private:
     QRectF m_currentHit;
 
     QTimer m_requestTimer;
+
+    // Texte, sélection et liens.
+    PdfDocument *m_text = nullptr;
+    PagePoint m_selStart;
+    PagePoint m_selEnd;
+    PdfDocument::SnapMode m_selMode = PdfDocument::SnapMode::Chars;
+    bool m_selecting = false;
+    bool m_panning = false;
+    QPoint m_pressPos;
+    QPoint m_panLast;
+    qint64 m_lastDoubleClick = 0;
+    QHash<int, QVector<QRectF>> m_selectionRects;
+    QHash<int, QVector<PdfLink>> m_links;
+    const PdfLink *m_pressedLink = nullptr;
+    bool m_invert = false;
 };

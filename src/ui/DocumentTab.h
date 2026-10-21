@@ -19,6 +19,7 @@ class QSplitter;
 class QTabWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
+class PdfDocument;
 class RenderService;
 class SearchBar;
 class SearchService;
@@ -87,6 +88,7 @@ private:
     DocumentState m_restore;
 
     std::unique_ptr<RenderService> m_render;
+    std::unique_ptr<PdfDocument> m_textDocument;
     std::unique_ptr<SearchService> m_search;
 
     SearchBar *m_searchBar;
