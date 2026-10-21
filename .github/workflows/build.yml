@@ -6,7 +6,6 @@ name: Windows
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -246,24 +245,30 @@ jobs:
           if-no-files-found: error
 
   release:
+    # Publie une version dès que le numéro de CMakeLists.txt change : la page
+    # de téléchargement v<version> est créée une seule fois, avec ses fichiers.
     name: Publication
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: package
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: PDFLibre-paquets
           path: out
-      - name: Créer la version
+      - name: Créer la version si elle n'existe pas
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # La version peut déjà exister (créée à la main) : on y ajoute ou remplace les fichiers.
-          if ! gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
-              --title "PDF Libre ${GITHUB_REF_NAME#v}" --generate-notes
+          version=$(sed -nE 's/^project\(PdfLibre VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          tag="v${version}"
+          if gh release view "$tag" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "La version $tag existe déjà : rien à publier."
+            exit 0
           fi
-          gh release upload "${GITHUB_REF_NAME}" out/* --repo "${GITHUB_REPOSITORY}" --clobber
+          gh release create "$tag" out/* --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
+            --title "PDF Libre ${version}" --notes-file installer/notes-de-version.md
+          echo "Version $tag publiée."
