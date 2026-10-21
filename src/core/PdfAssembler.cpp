@@ -1,6 +1,7 @@
 // Copyright (C) 2026 David Carmo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "PdfAssembler.h"
+#include "TempPath.h"
 
 extern "C" {
 #include <mupdf/fitz.h>
@@ -11,8 +12,7 @@ extern "C" {
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
-#include <QSaveFile>
-#include <QTemporaryFile>
+#include <QRandomGenerator>
 
 #include <functional>
 #include <map>
@@ -179,13 +179,11 @@ PdfAssembler::Result PdfAssembler::assemble(const QVector<PageRef> &pages, const
 
     // Fichier temporaire dans le même dossier : le remplacement final est atomique.
     const QFileInfo outInfo(outputPath);
-    QTemporaryFile temp(outInfo.absolutePath() + QStringLiteral("/.carmopdf-XXXXXX.tmp"));
-    if (!temp.open()) {
+    const QString tempPath = temporaryPathIn(outInfo.absolutePath());
+    if (tempPath.isEmpty()) {
         result.error = QStringLiteral("Impossible d'écrire dans le dossier %1.").arg(QDir::toNativeSeparators(outInfo.absolutePath()));
         return result;
     }
-    const QString tempPath = temp.fileName();
-    temp.close();
 
     // Signets et métadonnées conservés si une seule source et aucune page blanche.
     QHash<int, int> newIndexOf;

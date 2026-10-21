@@ -59,6 +59,7 @@ add_library(carmopdf_core STATIC
     src/core/PdfDocument.h src/core/PdfDocument.cpp
     src/core/RenderService.h src/core/RenderService.cpp
     src/core/SearchService.h src/core/SearchService.cpp
+    src/core/TempPath.h
 )
 target_include_directories(carmopdf_core PUBLIC src)
 target_link_libraries(carmopdf_core PUBLIC Qt6::Core Qt6::Gui PRIVATE mupdf_deps)
@@ -112,6 +113,9 @@ if(CARMOPDF_BUILD_TESTS)
     if(Qt6Test_FOUND)
         enable_testing()
         add_executable(test_core tests/test_core.cpp)
+        add_executable(test_annotations tests/test_annotations.cpp)
+        target_link_libraries(test_annotations PRIVATE carmopdf_core Qt6::Test)
+        add_test(NAME test_annotations COMMAND test_annotations)
         add_executable(test_assembler tests/test_assembler.cpp)
         target_link_libraries(test_assembler PRIVATE carmopdf_core Qt6::Test)
         add_test(NAME test_assembler COMMAND test_assembler)
@@ -120,6 +124,6 @@ if(CARMOPDF_BUILD_TESTS)
         target_link_libraries(test_ui PRIVATE carmopdf_ui Qt6::Test)
         add_test(NAME test_core COMMAND test_core)
         add_test(NAME test_ui COMMAND test_ui)
-        set_tests_properties(test_core test_assembler test_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        set_tests_properties(test_core test_annotations test_assembler test_ui PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
 endif()
