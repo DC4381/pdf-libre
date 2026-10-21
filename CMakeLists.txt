@@ -26,6 +26,8 @@ if(MUPDF_ROOT)
     if(NOT _mupdf_libs)
         message(FATAL_ERROR "Aucune bibliothèque MuPDF trouvée dans ${MUPDF_ROOT}/lib")
     endif()
+    # libmupdf avant libmupdf-third : l'ordre compte pour l'éditeur de liens.
+    list(SORT _mupdf_libs ORDER DESCENDING)
     target_link_libraries(mupdf_deps INTERFACE ${_mupdf_libs})
 else()
     find_package(unofficial-mupdf CONFIG QUIET)

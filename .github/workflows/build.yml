@@ -65,7 +65,7 @@ jobs:
       # --- MuPDF (compilé une fois, puis mis en cache) ---------------------
       - name: Cache MuPDF
         id: mupdf-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: mupdf-dist
           key: mupdf-${{ env.MUPDF_VERSION }}-${{ matrix.arch }}-v1
@@ -88,10 +88,18 @@ jobs:
           Copy-Item "$src/COPYING" mupdf-dist/COPYING
           Get-ChildItem mupdf-dist/lib
 
+      # Sauvegarde immédiate : une erreur plus loin n'oblige pas à recompiler MuPDF.
+      - name: Sauver MuPDF
+        if: steps.mupdf-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: mupdf-dist
+          key: mupdf-${{ env.MUPDF_VERSION }}-${{ matrix.arch }}-v1
+
       # --- Qt -----------------------------------------------------------------
       - name: Cache Qt
         id: qt-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: qt
           key: qt-${{ env.QT_VERSION }}-${{ matrix.qt_arch }}-v1
@@ -101,6 +109,13 @@ jobs:
         run: |
           python -m pip install aqtinstall==3.3.0
           python -m aqt install-qt ${{ matrix.qt_host }} desktop ${{ env.QT_VERSION }} ${{ matrix.qt_arch }} -O qt
+
+      - name: Sauver Qt
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: qt
+          key: qt-${{ env.QT_VERSION }}-${{ matrix.qt_arch }}-v1
 
       # --- Application --------------------------------------------------------
       - name: Configurer
@@ -118,7 +133,16 @@ jobs:
         shell: pwsh
         run: |
           $env:PATH = "$PWD/qt/$env:QT_VERSION/${{ matrix.qt_dir }}/bin;$env:PATH"
-          ctest --test-dir build -C Release --output-on-failure
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          $failed = $false
+          foreach ($t in 'test_core', 'test_ui') {
+            & "build/Release/$t.exe" -o "$t.txt,txt"
+            $code = $LASTEXITCODE
+            Write-Host "=== $t (code $code)"
+            if (Test-Path "$t.txt") { Get-Content "$t.txt" }
+            if ($code -ne 0) { $failed = $true }
+          }
+          if ($failed) { exit 1 }
 
       - name: Préparer le dossier de l'application
         shell: pwsh

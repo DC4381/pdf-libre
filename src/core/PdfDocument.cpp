@@ -13,6 +13,14 @@ extern "C" {
 // depuis fz_try. Les variables modifiées dans fz_try et lues ensuite sont
 // déclarées avec fz_var.
 
+// Depuis MuPDF 1.24, chaque erreur interceptée doit être déclarée traitée,
+// sinon MuPDF signale une « UNHANDLED EXCEPTION ».
+#if FZ_VERSION_MAJOR > 1 || FZ_VERSION_MINOR >= 24
+#define PDFLIBRE_ERROR_HANDLED(ctx) fz_ignore_error(ctx)
+#else
+#define PDFLIBRE_ERROR_HANDLED(ctx) ((void)0)
+#endif
+
 namespace {
 // Mémoire maximale du cache interne de MuPDF (polices, images décodées).
 constexpr size_t kStoreSize = 256u << 20;
@@ -22,7 +30,11 @@ int pageNumber(fz_context *ctx, fz_document *doc, fz_location location)
     int page = -1;
     fz_var(page);
     fz_try(ctx) { page = fz_page_number_from_location(ctx, doc, location); }
-    fz_catch(ctx) { page = -1; }
+    fz_catch(ctx)
+    {
+        PDFLIBRE_ERROR_HANDLED(ctx);
+        page = -1;
+    }
     return page;
 }
 
@@ -45,7 +57,11 @@ PdfDocument::PdfDocument()
     m_ctx = fz_new_context(nullptr, nullptr, kStoreSize);
     if (m_ctx) {
         fz_try(m_ctx) { fz_register_document_handlers(m_ctx); }
-        fz_catch(m_ctx) { fz_drop_context(m_ctx); m_ctx = nullptr; }
+        fz_catch(m_ctx)
+        {
+            fz_drop_context(m_ctx);
+            m_ctx = nullptr;
+        }
     }
     if (!m_ctx)
         m_error = QStringLiteral("Impossible d'initialiser le moteur PDF.");
@@ -74,10 +90,21 @@ PdfDocument::OpenStatus PdfDocument::open(const QString &path, const QByteArray 
     fz_catch(m_ctx)
     {
         m_error = QString::fromUtf8(fz_caught_message(m_ctx));
+        PDFLIBRE_ERROR_HANDLED(m_ctx);
         return OpenStatus::Failed;
     }
 
-    if (fz_needs_password(m_ctx, doc)) {
+    int needsPassword = 0;
+    fz_var(needsPassword);
+    fz_try(m_ctx) { needsPassword = fz_needs_password(m_ctx, doc); }
+    fz_catch(m_ctx)
+    {
+        m_error = QString::fromUtf8(fz_caught_message(m_ctx));
+        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        fz_drop_document(m_ctx, doc);
+        return OpenStatus::Failed;
+    }
+    if (needsPassword) {
         if (password.isEmpty()) {
             fz_drop_document(m_ctx, doc);
             return OpenStatus::NeedsPassword;
@@ -94,6 +121,7 @@ PdfDocument::OpenStatus PdfDocument::open(const QString &path, const QByteArray 
     fz_catch(m_ctx)
     {
         m_error = QString::fromUtf8(fz_caught_message(m_ctx));
+        PDFLIBRE_ERROR_HANDLED(m_ctx);
         fz_drop_document(m_ctx, doc);
         return OpenStatus::Failed;
     }
@@ -121,7 +149,12 @@ QSizeF PdfDocument::pageSize(int index)
         bounds = fz_bound_page(m_ctx, page);
     }
     fz_always(m_ctx) { fz_drop_page(m_ctx, page); }
-    fz_catch(m_ctx) { return QSizeF(612, 792); } // Page illisible : format Lettre par défaut.
+    fz_catch(m_ctx)
+    {
+        // Page illisible : format Lettre par défaut.
+        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        return QSizeF(612, 792);
+    }
     const QSizeF size(bounds.x1 - bounds.x0, bounds.y1 - bounds.y0);
     return size.isEmpty() ? QSizeF(612, 792) : size;
 }
@@ -167,6 +200,7 @@ QImage PdfDocument::render(int index, double scale, const QRect &clip)
     {
         fz_drop_pixmap(m_ctx, pix);
         m_error = QString::fromUtf8(fz_caught_message(m_ctx));
+        PDFLIBRE_ERROR_HANDLED(m_ctx);
         return {};
     }
 
@@ -191,7 +225,11 @@ OutlineList PdfDocument::outline()
     fz_outline *root = nullptr;
     fz_var(root);
     fz_try(m_ctx) { root = fz_load_outline(m_ctx, m_doc); }
-    fz_catch(m_ctx) { return result; }
+    fz_catch(m_ctx)
+    {
+        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        return result;
+    }
     convertOutline(m_ctx, m_doc, root, result);
     fz_drop_outline(m_ctx, root);
     return result;
@@ -217,7 +255,11 @@ QVector<QRectF> PdfDocument::search(int index, const QString &needle, int maxHit
         count = fz_search_page(m_ctx, page, utf8.constData(), nullptr, quads.data(), maxHits);
     }
     fz_always(m_ctx) { fz_drop_page(m_ctx, page); }
-    fz_catch(m_ctx) { return rects; }
+    fz_catch(m_ctx)
+    {
+        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        return rects;
+    }
 
     rects.reserve(count);
     for (int i = 0; i < count; ++i) {
@@ -235,6 +277,10 @@ QString PdfDocument::metadata(const char *key)
     int length = -1;
     fz_var(length);
     fz_try(m_ctx) { length = fz_lookup_metadata(m_ctx, m_doc, key, buffer, sizeof buffer); }
-    fz_catch(m_ctx) { length = -1; }
+    fz_catch(m_ctx)
+    {
+        PDFLIBRE_ERROR_HANDLED(m_ctx);
+        length = -1;
+    }
     return length > 0 ? QString::fromUtf8(buffer).trimmed() : QString();
 }
