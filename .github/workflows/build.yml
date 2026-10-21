@@ -261,5 +261,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" out/* --repo "${GITHUB_REPOSITORY}" \
-            --title "PDF Libre ${GITHUB_REF_NAME#v}" --generate-notes
+          # La version peut déjà exister (créée à la main) : on y ajoute ou remplace les fichiers.
+          if ! gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+              --title "PDF Libre ${GITHUB_REF_NAME#v}" --generate-notes
+          fi
+          gh release upload "${GITHUB_REF_NAME}" out/* --repo "${GITHUB_REPOSITORY}" --clobber
