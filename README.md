@@ -1,5 +1,7 @@
 # PDF Libre
 
+Créé par David Carmo.
+
 Lecteur PDF gratuit, libre et rapide pour Windows, inspiré de SumatraPDF.
 Aucun compte, aucune publicité, aucun abonnement : vos documents restent sur
 votre ordinateur.
@@ -110,7 +112,9 @@ cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build
 | `tests` | Tests automatisés du noyau et de l'interface, exécutés à chaque modification. |
 | `installer` | Script Inno Setup de l'installateur unique x64 + ARM64. |
 
-## Licence
+## Auteur et licence
 
+PDF Libre est créé par **David Carmo**, qui en détient les droits
+(Copyright © 2026 David Carmo). Il est mis à disposition sous licence
 GNU Affero General Public License version 3 (voir `LICENSE`). Composants
 tiers : voir `THIRD-PARTY-NOTICES.md`.

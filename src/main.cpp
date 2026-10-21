@@ -1,3 +1,4 @@
+// Copyright (C) 2026 David Carmo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "core/Types.h"
 #include "ui/MainWindow.h"

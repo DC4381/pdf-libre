@@ -1,3 +1,4 @@
+// Copyright (C) 2026 David Carmo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Tests du noyau : ouverture, rendu, recherche, mots de passe, robustesse.
 // Les PDF de test sont générés à la volée : aucun fichier binaire dans le dépôt.

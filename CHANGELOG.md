@@ -1,6 +1,10 @@
 # Journal des modifications
 
-## 0.1.0 (en préparation)
+## 0.1.1
+
+- Mention de l'auteur et propriétaire, David Carmo, dans le programme, l'installateur et la documentation.
+
+## 0.1.0
 
 Première version : lecteur PDF.
 

@@ -16,11 +16,11 @@ BEGIN
     BEGIN
         BLOCK "040c04b0"
         BEGIN
-            VALUE "CompanyName", "Projet PDF Libre"
+            VALUE "CompanyName", "David Carmo"
             VALUE "FileDescription", "PDF Libre - lecteur PDF"
             VALUE "FileVersion", "@PROJECT_VERSION@"
             VALUE "InternalName", "PDFLibre"
-            VALUE "LegalCopyright", "Contributeurs de PDF Libre, licence AGPL-3.0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 David Carmo. Licence AGPL-3.0"
             VALUE "OriginalFilename", "PDFLibre.exe"
             VALUE "ProductName", "PDF Libre"
             VALUE "ProductVersion", "@PROJECT_VERSION@"

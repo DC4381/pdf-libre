@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 cmake_minimum_required(VERSION 3.21)
 
-project(PdfLibre VERSION 0.1.0 DESCRIPTION "Lecteur PDF libre et rapide" LANGUAGES C CXX)
+project(PdfLibre VERSION 0.1.1 DESCRIPTION "Lecteur PDF libre et rapide" LANGUAGES C CXX)
 
 set(PDFLIBRE_HOMEPAGE "https://github.com/pdf-libre/pdf-libre" CACHE STRING "Adresse du code source affichée dans l'application")
 option(PDFLIBRE_BUILD_TESTS "Compiler les tests" ON)

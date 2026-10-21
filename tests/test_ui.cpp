@@ -1,3 +1,4 @@
+// Copyright (C) 2026 David Carmo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Tests de l'interface : chargement, navigation, zoom fort (rendu par zones),
 // miniatures. Exécutés sans écran (QT_QPA_PLATFORM=offscreen).

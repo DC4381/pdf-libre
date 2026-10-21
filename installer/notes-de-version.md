@@ -1,4 +1,4 @@
-Première version de PDF Libre : lecteur PDF gratuit, libre et rapide pour Windows, sans compte, sans publicité, sans envoi de données.
+PDF Libre est créé par David Carmo. Première version : lecteur PDF gratuit, libre et rapide pour Windows, sans compte, sans publicité, sans envoi de données.
 
 ## Quel fichier télécharger ?
 

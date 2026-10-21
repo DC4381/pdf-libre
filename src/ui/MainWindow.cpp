@@ -1,3 +1,4 @@
+// Copyright (C) 2026 David Carmo
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "MainWindow.h"
 
@@ -509,7 +510,8 @@ void MainWindow::showAbout()
         tr("<h3>PDF Libre %1</h3>"
            "<p>Lecteur PDF gratuit, rapide et sans publicité. Vos documents restent sur votre ordinateur : "
            "aucune donnée n'est transmise.</p>"
-           "<p>Logiciel libre sous licence GNU AGPL version 3.<br>Code source : <a href=\"%2\">%2</a></p>"
+           "<p>Créé par David Carmo. Copyright © 2026 David Carmo.<br>"
+           "Logiciel libre sous licence GNU AGPL version 3.<br>Code source : <a href=\"%2\">%2</a></p>"
            "<p>Composants : MuPDF © Artifex Software (AGPL-3.0), Qt © The Qt Company (LGPL-3.0).</p>"
            "<p>Mode portable : %3</p>")
             .arg(QApplication::applicationVersion(), QStringLiteral(APP_HOMEPAGE),
